@@ -1,5 +1,6 @@
 use crate::app_state::AppState;
 use crate::handlers::simulations::SimulationRes;
+use crate::utils::simulate::convert_array;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -17,32 +18,6 @@ use starknet_providers::{
 };
 use std::{str::FromStr, sync::Arc};
 use url::Url;
-
-pub fn convert_array(arr: Vec<String>) -> Vec<String> {
-    // Convert String to u64
-    let num_transactions = arr[0].clone().parse::<i32>().unwrap();
-    let mut converted_arr: Vec<String> = Vec::new();
-    converted_arr.push(arr[0].clone());
-
-    for i in 0..num_transactions {
-        let contract_address = arr[4 * i as usize + 1].clone();
-        let selector = arr[4 * i as usize + 2].clone();
-        converted_arr.push(contract_address);
-        converted_arr.push(selector);
-
-        let calldata_len_current = arr[4 * i as usize + 4].clone().parse::<i32>().unwrap();
-        converted_arr.push(arr[4 * i as usize + 4].clone());
-
-        let start_index: usize = 4 * num_transactions as usize
-            + 2
-            + arr[4 * i as usize + 3].parse::<i32>().unwrap() as usize;
-        let end_index: usize = start_index + calldata_len_current as usize;
-
-        let args = &arr[start_index..end_index];
-        converted_arr.extend_from_slice(args);
-    }
-    converted_arr
-}
 
 fn create_rpc_client(chain_id: String) -> JsonRpcClient<HttpTransport> {
     let url = match chain_id.as_str() {
