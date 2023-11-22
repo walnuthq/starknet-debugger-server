@@ -1,5 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
+use num_bigint::BigUint;
+use num_traits::Num;
 use blockifier::{
     block_context::{BlockContext, FeeTokenAddresses, GasPrices},
     state::cached_state::{CachedState, GlobalContractCache},
@@ -118,4 +120,9 @@ pub fn get_block_context(chain_id: ChainId, block_at: BlockNumber) -> BlockConte
         validate_max_n_steps: 1_000_000,
         max_recursion_depth: 50,
     }
+}
+
+pub fn convert_to_hex(num_str: &str) -> String {
+    let num = BigUint::from_str_radix(num_str, 10).unwrap();
+    format!("{:x}", num)
 }

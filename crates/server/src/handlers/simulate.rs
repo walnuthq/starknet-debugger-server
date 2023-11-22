@@ -1,34 +1,32 @@
 use crate::app_state::AppState;
 use crate::db;
-use crate::utils::simulate::{convert_array, create_fork_cached_state_at, get_block_context};
+use crate::utils::simulate::{convert_array, create_fork_cached_state_at, get_block_context, convert_to_hex};
 use axum::{extract::State, http::StatusCode, Extension, Json};
-use blockifier::block_context::{BlockContext, FeeTokenAddresses, GasPrices};
-use blockifier::state::cached_state::{CachedState, GlobalContractCache};
+
+use blockifier::state::cached_state::{CachedState};
 use blockifier::transaction::transaction_execution::Transaction;
 use blockifier::transaction::transactions::ExecutableTransaction;
-use forking::state::ForkStateReader;
-use num_bigint::BigUint;
-use num_traits::Num;
+
+
+
 use serde::{Deserialize, Serialize};
-use sqlx::types::Uuid;
+
 use starknet::core::types::{
-    BlockId, BroadcastedInvokeTransaction, BroadcastedTransaction, ExecuteInvocation, FieldElement,
-    SimulationFlag, TransactionTrace,
+    BlockId,
 };
-use starknet_api::block::{BlockNumber, BlockTimestamp};
-use starknet_api::core::{ChainId, ContractAddress, EntryPointSelector, Nonce, PatriciaKey};
+use starknet_api::block::{BlockNumber};
+use starknet_api::core::{ChainId, ContractAddress, Nonce, PatriciaKey};
 use starknet_api::hash::{StarkFelt, StarkHash};
 use starknet_api::transaction::{
-    Calldata, Fee, InvokeTransaction as SAInvokeTransaction, InvokeTransactionV1,
-    L1HandlerTransaction, Transaction as StarknetApiTransaction, TransactionHash,
-    TransactionSignature, TransactionVersion,
+    Calldata, Fee, InvokeTransaction as SAInvokeTransaction, InvokeTransactionV1, Transaction as StarknetApiTransaction, TransactionHash,
+    TransactionSignature,
 };
-use starknet_api::{calldata, contract_address, patricia_key, stark_felt};
+use starknet_api::{contract_address, patricia_key, stark_felt};
 use starknet_providers::{
     jsonrpc::{HttpTransport, JsonRpcClient},
     Provider,
 };
-use std::collections::HashMap;
+
 use std::sync::Arc;
 use url::Url;
 
@@ -47,14 +45,9 @@ pub struct StarkNetTransaction {
 #[derive(Serialize)]
 pub struct SimulateResult {}
 
-fn convert_to_hex(num_str: &str) -> String {
-    let num = BigUint::from_str_radix(num_str, 10).unwrap();
-    format!("{:x}", num)
-}
-
 pub async fn simulate(
     Extension(team): Extension<db::Team>,
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     Json(payload): Json<StarkNetTransaction>,
 ) -> Result<Json<SimulateResult>, StatusCode> {
     let public_rpc_client = create_rpc_client(payload.chain_id.clone(), false);
