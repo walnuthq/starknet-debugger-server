@@ -28,3 +28,4 @@ blockifier.workspace = true
 forking = { path = "../forking" }
 num-traits.workspace = true
 num-bigint.workspace = true
+axum-prometheus = "0.4.0"

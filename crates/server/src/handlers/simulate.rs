@@ -1,32 +1,29 @@
 use crate::app_state::AppState;
 use crate::db;
-use crate::utils::simulate::{convert_array, create_fork_cached_state_at, get_block_context, convert_to_hex};
+use crate::utils::simulate::{
+    convert_array, convert_to_hex, create_fork_cached_state_at, get_block_context,
+};
 use axum::{extract::State, http::StatusCode, Extension, Json};
 
-use blockifier::state::cached_state::{CachedState};
+use blockifier::state::cached_state::CachedState;
 use blockifier::transaction::transaction_execution::Transaction;
 use blockifier::transaction::transactions::ExecutableTransaction;
 
-
-
 use serde::{Deserialize, Serialize};
 
-use starknet::core::types::{
-    BlockId,
-};
-use starknet_api::block::{BlockNumber};
+use starknet::core::types::BlockId;
+use starknet_api::block::BlockNumber;
 use starknet_api::core::{ChainId, ContractAddress, Nonce, PatriciaKey};
 use starknet_api::hash::{StarkFelt, StarkHash};
 use starknet_api::transaction::{
-    Calldata, Fee, InvokeTransaction as SAInvokeTransaction, InvokeTransactionV1, Transaction as StarknetApiTransaction, TransactionHash,
-    TransactionSignature,
+    Calldata, Fee, InvokeTransaction as SAInvokeTransaction, InvokeTransactionV1,
+    Transaction as StarknetApiTransaction, TransactionHash, TransactionSignature,
 };
 use starknet_api::{contract_address, patricia_key, stark_felt};
 use starknet_providers::{
     jsonrpc::{HttpTransport, JsonRpcClient},
     Provider,
 };
-
 use std::sync::Arc;
 use url::Url;
 
@@ -50,9 +47,9 @@ pub async fn simulate(
     State(_state): State<Arc<AppState>>,
     Json(payload): Json<StarkNetTransaction>,
 ) -> Result<Json<SimulateResult>, StatusCode> {
-    let public_rpc_client = create_rpc_client(payload.chain_id.clone(), false);
+    let private_rpc_client = create_rpc_client(payload.chain_id.clone(), true);
 
-    let block_number = public_rpc_client.block_number().await.unwrap();
+    let block_number = private_rpc_client.block_number().await.unwrap();
 
     // TODO: Insert into database
     let mut sim = db::Simulation::default();
@@ -86,7 +83,8 @@ pub async fn simulate(
     //     .bind(&sim.calldata)
     // .fetch_one(&state.db_pool).await.unwrap();
 
-    // let id = row.0;
+    let id = row.0;
+    info!("Inserted into database with id {}", id);
 
     let calldata_raw: Vec<StarkFelt> = convert_array(sim.calldata)
         .iter()

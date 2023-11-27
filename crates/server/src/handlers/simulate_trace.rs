@@ -1,25 +1,23 @@
 use crate::app_state::AppState;
 use crate::handlers::simulations::SimulationRes;
 use crate::utils::simulate::convert_array;
+use crate::utils::simulate::convert_to_hex;
+use crate::utils::simulate::create_fork_cached_state_at;
+use crate::utils::simulate::get_block_context;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     Json,
 };
-use crate::utils::simulate::get_block_context;
-use crate::utils::simulate::create_fork_cached_state_at;
-use crate::utils::simulate::convert_to_hex;
 use serde::Serialize;
 use sqlx::types::Uuid;
-use starknet::core::types::{
-    BlockId,
-};
-use starknet_api::block::{BlockNumber};
+use starknet::core::types::BlockId;
+use starknet_api::block::BlockNumber;
 use starknet_api::core::{ChainId, ContractAddress, Nonce, PatriciaKey};
 use starknet_api::hash::{StarkFelt, StarkHash};
 use starknet_api::transaction::{
-    Calldata, Fee, InvokeTransaction as SAInvokeTransaction, InvokeTransactionV1, Transaction as StarknetApiTransaction, TransactionHash,
-    TransactionSignature,
+    Calldata, Fee, InvokeTransaction as SAInvokeTransaction, InvokeTransactionV1,
+    Transaction as StarknetApiTransaction, TransactionHash, TransactionSignature,
 };
 use starknet_api::{contract_address, patricia_key, stark_felt};
 use starknet_providers::{
@@ -27,13 +25,13 @@ use starknet_providers::{
     Provider,
 };
 
-use blockifier::state::cached_state::{CachedState};
+use blockifier::state::cached_state::CachedState;
 use blockifier::transaction::transaction_execution::Transaction;
 use blockifier::transaction::transactions::ExecutableTransaction;
 
+use starknet::core::types::SimulatedTransaction;
 use std::{str::FromStr, sync::Arc};
 use url::Url;
-use starknet::core::types::SimulatedTransaction;
 
 #[derive(Serialize)]
 pub struct SimulateTraceResponse {

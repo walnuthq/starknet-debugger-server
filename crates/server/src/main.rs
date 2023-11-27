@@ -17,11 +17,11 @@ use axum::{
     routing::post,
     Json, Router,
 };
+use axum_prometheus::PrometheusMetricLayer;
 use db::Team;
 use dotenv::dotenv;
 use handlers::{simulate::simulate, simulate_trace::simulate_trace, simulations::get_simulations};
 use sqlx::postgres::PgPoolOptions;
-
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -74,12 +74,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
 
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new("info"))
-        // .with(
-        //     tracing_subscriber::EnvFilter::try_from_default_env()
-        //         .unwrap_or_else(|_| "server=debug".into()),
-        // )
-        .with(tracing_subscriber::fmt::layer())
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,server=debug,tower_http=debug".into()),
+        )
+        .with(tracing_subscriber::fmt::layer().json())
         .init();
 
     // let redis_addr = std::env::var("REDIS_ADDR").unwrap_or("redis://127.0.0.1/".to_string());
@@ -97,6 +96,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // redis_client: Arc::new(client),
     });
 
+    let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
+
     let app = Router::new()
         .route("/v1/simulate", post(simulate))
         .route_layer(middleware::from_fn_with_state(
@@ -108,6 +109,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/v1/simulate-trace/:id", get(simulate_trace))
         .route("/_ah/warmup", get(|| async { "OK" }))
         .with_state(shared_state)
+        .route("/metrics", get(|| async move { metric_handle.render() }))
+        .layer(prometheus_layer)
+        .layer(tower_http::trace::TraceLayer::new_for_http())
         .layer(CorsLayer::permissive());
 
     println!("Listening on 0.0.0.0:3000");
