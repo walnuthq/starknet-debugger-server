@@ -447,7 +447,7 @@ dependencies = [
 [[package]]
 name = "blockifier"
 version = "0.3.0-rc0"
-source = "git+https://github.com/jainkunal/blockifier?rev=d895ae1788b9484de34e68d7d7cfbad2aa3bbd92#d895ae1788b9484de34e68d7d7cfbad2aa3bbd92"
+source = "git+https://github.com/jainkunal/blockifier?rev=8770a73c1ff8d6baf831f56c431165471aab3d5c#8770a73c1ff8d6baf831f56c431165471aab3d5c"
 dependencies = [
  "ark-ec",
  "ark-ff",
