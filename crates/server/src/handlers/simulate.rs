@@ -25,6 +25,7 @@ use starknet_providers::{
     Provider,
 };
 use std::sync::Arc;
+use tracing::info;
 use url::Url;
 
 #[derive(Serialize, Deserialize)]
@@ -83,8 +84,8 @@ pub async fn simulate(
     //     .bind(&sim.calldata)
     // .fetch_one(&state.db_pool).await.unwrap();
 
-    let id = row.0;
-    info!("Inserted into database with id {}", id);
+    // let id = row.0;
+    // info!("Inserted into database with id {}", id);
 
     let calldata_raw: Vec<StarkFelt> = convert_array(sim.calldata)
         .iter()
@@ -123,6 +124,13 @@ pub async fn simulate(
 
     let tx_info = tx.execute(&mut tx_state, &block_context, true, false);
     dbg!(tx_info);
+
+    // match tx_info.revert_error {
+    //     Some(e) => {
+    //         return Err(StatusCode::EXPECTATION_FAILED);
+    //     }
+    //     None => {}
+    // }
 
     // if st.is_err() {
     //     sqlx::query!(

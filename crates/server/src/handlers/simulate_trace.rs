@@ -9,9 +9,14 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use blockifier::state::cached_state::CachedState;
+use blockifier::transaction::objects::TransactionExecutionInfo;
+use blockifier::transaction::transaction_execution::Transaction;
+use blockifier::transaction::transactions::ExecutableTransaction;
 use serde::Serialize;
 use sqlx::types::Uuid;
 use starknet::core::types::BlockId;
+use starknet::core::types::SimulatedTransaction;
 use starknet_api::block::BlockNumber;
 use starknet_api::core::{ChainId, ContractAddress, Nonce, PatriciaKey};
 use starknet_api::hash::{StarkFelt, StarkHash};
@@ -20,22 +25,12 @@ use starknet_api::transaction::{
     Transaction as StarknetApiTransaction, TransactionHash, TransactionSignature,
 };
 use starknet_api::{contract_address, patricia_key, stark_felt};
-use starknet_providers::{
-    jsonrpc::{HttpTransport, JsonRpcClient},
-    Provider,
-};
 
-use blockifier::state::cached_state::CachedState;
-use blockifier::transaction::transaction_execution::Transaction;
-use blockifier::transaction::transactions::ExecutableTransaction;
-
-use starknet::core::types::SimulatedTransaction;
 use std::{str::FromStr, sync::Arc};
-use url::Url;
 
 #[derive(Serialize)]
 pub struct SimulateTraceResponse {
-    simulated_transaction: SimulatedTransaction,
+    execution_info: TransactionExecutionInfo,
     simulation: SimulationRes,
 }
 
@@ -68,7 +63,7 @@ pub async fn simulate_trace(
         status: row.status,
     };
 
-    let calldata_raw: Vec<StarkFelt> = convert_array(sim.calldata)
+    let calldata_raw: Vec<StarkFelt> = convert_array(sim.calldata.clone())
         .iter()
         .map(|x| stark_felt!(convert_to_hex(x).as_str()))
         .collect();
@@ -91,7 +86,7 @@ pub async fn simulate_trace(
     )
     .unwrap();
 
-    let chain_id = ChainId(sim.chain_id);
+    let chain_id = ChainId(sim.chain_id.clone());
     let block_context = get_block_context(chain_id.clone(), BlockNumber(sim.block_at as u64));
 
     // TODO: Don't use File cache
@@ -104,14 +99,13 @@ pub async fn simulate_trace(
     let mut tx_state = CachedState::<_>::create_transactional(&mut cached_fork_state);
 
     let tx_info = tx.execute(&mut tx_state, &block_context, true, false);
-    dbg!(tx_info);
+    // dbg!(tx_info);
 
-    // match st {
-    //     Ok(s) => Ok(Json(SimulateTraceResponse {
-    //         simulated_transaction: s,
-    //         simulation: sim,
-    //     })),
-    //     Err(_) => Err(StatusCode::NOT_FOUND),
-    // }
-    Err(StatusCode::NOT_FOUND)
+    match tx_info {
+        Ok(tx_info) => Ok(Json(SimulateTraceResponse {
+            execution_info: tx_info,
+            simulation: sim,
+        })),
+        Err(_) => Err(StatusCode::EXPECTATION_FAILED),
+    }
 }
