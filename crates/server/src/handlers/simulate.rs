@@ -9,6 +9,7 @@ use blockifier::transaction::transactions::ExecutableTransaction;
 
 use serde::{Deserialize, Serialize};
 
+use sqlx::types::Uuid;
 use starknet::core::types::BlockId;
 use starknet_api::block::BlockNumber;
 use starknet_api::core::{ChainId, ContractAddress, Nonce, PatriciaKey};
@@ -28,7 +29,6 @@ use url::Url;
 
 #[derive(Serialize, Deserialize)]
 pub struct StarkNetTransaction {
-    // Define your transaction structure here;
     chain_id: String,
     wallet_address: String,
     calldata: Vec<String>,
@@ -43,14 +43,13 @@ pub struct SimulateResult {}
 
 pub async fn simulate(
     Extension(team): Extension<db::Team>,
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(payload): Json<StarkNetTransaction>,
 ) -> Result<Json<SimulateResult>, StatusCode> {
     let private_rpc_client = create_rpc_client(payload.chain_id.clone(), true);
 
     let block_number = private_rpc_client.block_number().await.unwrap();
 
-    // TODO: Insert into database
     let mut sim = db::Simulation::default();
     sim.team_id = team.id;
     sim.chain_id = payload.chain_id;
@@ -69,21 +68,21 @@ pub async fn simulate(
     sim.calldata = payload.calldata;
 
     // Insert into database
-    // let row: (Uuid,) = sqlx::query_as(
-    //     "INSERT INTO simulations (team_id, chain_id, block_at, transaction_version, nonce, max_fee, cairo_version, wallet_address, calldata) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id")
-    //     .bind(&sim.team_id)
-    //     .bind(&sim.chain_id)
-    //     .bind(&sim.block_at)
-    //     .bind(&sim.transaction_version)
-    //     .bind(&sim.nonce)
-    //     .bind(&sim.max_fee)
-    //     .bind(&sim.cairo_version)
-    //     .bind(&sim.wallet_address)
-    //     .bind(&sim.calldata)
-    // .fetch_one(&state.db_pool).await.unwrap();
+    let row: (Uuid,) = sqlx::query_as(
+        "INSERT INTO simulations (team_id, chain_id, block_at, transaction_version, nonce, max_fee, cairo_version, wallet_address, calldata) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id")
+        .bind(&sim.team_id)
+        .bind(&sim.chain_id)
+        .bind(&sim.block_at)
+        .bind(&sim.transaction_version)
+        .bind(&sim.nonce)
+        .bind(&sim.max_fee)
+        .bind(&sim.cairo_version)
+        .bind(&sim.wallet_address)
+        .bind(&sim.calldata)
+    .fetch_one(&state.db_pool).await.unwrap();
 
-    // let id = row.0;
-    // info!("Inserted into database with id {}", id);
+    let id = row.0;
+    info!("Inserted into database with id {}", id);
 
     let calldata_raw: Vec<StarkFelt> = sim
         .calldata
@@ -122,60 +121,23 @@ pub async fn simulate(
     let mut tx_state = CachedState::<_>::create_transactional(&mut cached_fork_state);
 
     let tx_info = tx.execute(&mut tx_state, &block_context, true, false);
-    dbg!(tx_info);
 
-    // match tx_info.revert_error {
-    //     Some(e) => {
-    //         return Err(StatusCode::EXPECTATION_FAILED);
-    //     }
-    //     None => {}
-    // }
+    let sim_status = match tx_info {
+        Ok(tx) => match tx.revert_error {
+            Some(_) => "failure",
+            None => "success",
+        },
+        Err(_) => "failure",
+    };
 
-    // if st.is_err() {
-    //     sqlx::query!(
-    //         "UPDATE simulations SET status = $1 WHERE id = $2",
-    //         "failure",
-    //         id,
-    //     )
-    //     .execute(&state.db_pool)
-    //     .await
-    //     .unwrap();
-    // } else {
-    //     match st.unwrap().transaction_trace {
-    //         TransactionTrace::Invoke(t) => match t.execute_invocation {
-    //             ExecuteInvocation::Reverted(_) => {
-    //                 sqlx::query!(
-    //                     "UPDATE simulations SET status = $1 WHERE id = $2",
-    //                     "failure",
-    //                     id,
-    //                 )
-    //                 .execute(&state.db_pool)
-    //                 .await
-    //                 .unwrap();
-    //             }
-    //             ExecuteInvocation::Success(_) => {
-    //                 sqlx::query!(
-    //                     "UPDATE simulations SET status = $1 WHERE id = $2",
-    //                     "success",
-    //                     id,
-    //                 )
-    //                 .execute(&state.db_pool)
-    //                 .await
-    //                 .unwrap();
-    //             }
-    //         },
-    //         _ => {
-    //             sqlx::query!(
-    //                 "UPDATE simulations SET status = $1 WHERE id = $2",
-    //                 "success",
-    //                 id,
-    //             )
-    //             .execute(&state.db_pool)
-    //             .await
-    //             .unwrap();
-    //         }
-    //     };
-    // }
+    sqlx::query!(
+        "UPDATE simulations SET status = $1 WHERE id = $2",
+        sim_status,
+        id,
+    )
+    .execute(&state.db_pool)
+    .await
+    .unwrap();
 
     Ok(Json(SimulateResult {}))
 }
