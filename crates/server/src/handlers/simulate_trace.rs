@@ -90,12 +90,8 @@ pub async fn simulate_trace(
 
     let rpc_client = create_rpc_client(sim.chain_id.clone());
 
-    let block_id = BlockId::Number(sim.block_at as u64);
+    let block_id: BlockId = BlockId::Number(sim.block_at as u64);
     let sender_address = FieldElement::from_hex_be(sim.wallet_address.as_str()).unwrap();
-    let nonce = rpc_client
-        .get_nonce(block_id, sender_address)
-        .await
-        .unwrap();
 
     let tx_b = BroadcastedTransaction::Invoke(BroadcastedInvokeTransaction {
         sender_address,
@@ -105,7 +101,7 @@ pub async fn simulate_trace(
             .collect(),
         max_fee: FieldElement::from_dec_str("23200000090853470717981").unwrap(),
         signature: vec![],
-        nonce,
+        nonce: FieldElement::from_dec_str(sim.nonce.to_string().as_str()).unwrap(),
         is_query: false,
     });
 
