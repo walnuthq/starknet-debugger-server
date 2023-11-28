@@ -1,7 +1,6 @@
 use crate::app_state::AppState;
 use crate::handlers::simulations::SimulationRes;
 use crate::types::TransactionExecutionInfo;
-use crate::utils::simulate::convert_array;
 use crate::utils::simulate::convert_to_hex;
 use crate::utils::simulate::create_fork_cached_state_at;
 use crate::utils::simulate::get_block_context;
@@ -62,7 +61,9 @@ pub async fn simulate_trace(
         status: row.status,
     };
 
-    let calldata_raw: Vec<StarkFelt> = convert_array(sim.calldata.clone())
+    let calldata_raw: Vec<StarkFelt> = sim
+        .calldata
+        .clone()
         .iter()
         .map(|x| stark_felt!(convert_to_hex(x).as_str()))
         .collect();

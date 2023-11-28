@@ -1,8 +1,6 @@
 use crate::app_state::AppState;
 use crate::db;
-use crate::utils::simulate::{
-    convert_array, convert_to_hex, create_fork_cached_state_at, get_block_context,
-};
+use crate::utils::simulate::{convert_to_hex, create_fork_cached_state_at, get_block_context};
 use axum::{extract::State, http::StatusCode, Extension, Json};
 
 use blockifier::state::cached_state::CachedState;
@@ -87,7 +85,8 @@ pub async fn simulate(
     // let id = row.0;
     // info!("Inserted into database with id {}", id);
 
-    let calldata_raw: Vec<StarkFelt> = convert_array(sim.calldata)
+    let calldata_raw: Vec<StarkFelt> = sim
+        .calldata
         .iter()
         .map(|x| stark_felt!(convert_to_hex(x).as_str()))
         .collect();
