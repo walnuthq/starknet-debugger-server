@@ -1,5 +1,6 @@
 use crate::app_state::AppState;
 use crate::handlers::simulations::SimulationRes;
+use crate::types::TransactionExecutionInfo;
 use crate::utils::simulate::convert_array;
 use crate::utils::simulate::convert_to_hex;
 use crate::utils::simulate::create_fork_cached_state_at;
@@ -10,13 +11,11 @@ use axum::{
     Json,
 };
 use blockifier::state::cached_state::CachedState;
-use blockifier::transaction::objects::TransactionExecutionInfo;
 use blockifier::transaction::transaction_execution::Transaction;
 use blockifier::transaction::transactions::ExecutableTransaction;
 use serde::Serialize;
 use sqlx::types::Uuid;
 use starknet::core::types::BlockId;
-use starknet::core::types::SimulatedTransaction;
 use starknet_api::block::BlockNumber;
 use starknet_api::core::{ChainId, ContractAddress, Nonce, PatriciaKey};
 use starknet_api::hash::{StarkFelt, StarkHash};
@@ -103,7 +102,7 @@ pub async fn simulate_trace(
 
     match tx_info {
         Ok(tx_info) => Ok(Json(SimulateTraceResponse {
-            execution_info: tx_info,
+            execution_info: tx_info.into(),
             simulation: sim,
         })),
         Err(_) => Err(StatusCode::EXPECTATION_FAILED),
