@@ -1,6 +1,7 @@
 mod app_state;
 mod db;
 mod handlers;
+mod utils;
 
 extern crate dotenv;
 
