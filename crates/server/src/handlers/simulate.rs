@@ -41,7 +41,7 @@ pub struct StarkNetTransaction {
 pub struct SimulateResult {}
 
 pub async fn simulate(
-    Extension(team): Extension<db::Team>,
+    Extension(project): Extension<db::Project>,
     State(state): State<Arc<AppState>>,
     Json(payload): Json<StarkNetTransaction>,
 ) -> Result<Json<SimulateResult>, StatusCode> {
@@ -50,7 +50,7 @@ pub async fn simulate(
     let block_number = private_rpc_client.block_number().await.unwrap();
 
     let mut sim = db::Simulation::default();
-    sim.team_id = team.id;
+    sim.project_id = project.id;
     sim.chain_id = payload.chain_id;
     sim.block_at = block_number as i32;
     sim.transaction_version = 0;
@@ -77,8 +77,8 @@ pub async fn simulate(
 
     // Insert into database
     let row: (Uuid,) = sqlx::query_as(
-        "INSERT INTO simulations (team_id, chain_id, block_at, transaction_version, nonce, max_fee, cairo_version, wallet_address, calldata) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id")
-        .bind(&sim.team_id)
+        "INSERT INTO simulations (project_id, chain_id, block_at, transaction_version, nonce, max_fee, cairo_version, wallet_address, calldata) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id")
+        .bind(&sim.project_id)
         .bind(&sim.chain_id)
         .bind(&sim.block_at)
         .bind(&sim.transaction_version)
