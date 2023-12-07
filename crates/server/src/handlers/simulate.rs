@@ -34,7 +34,7 @@ pub struct StarkNetTransaction {
     calldata: Vec<String>,
     nonce: Option<u8>,
     max_fee: Option<u128>,
-    cairo_version: Option<String>,
+    cairo_version: String,
 }
 
 #[derive(Serialize)]
@@ -58,10 +58,7 @@ pub async fn simulate(
         Some(max_fee) => max_fee.to_string(),
         None => String::from(""),
     };
-    sim.cairo_version = match payload.cairo_version {
-        Some(version) => version,
-        None => String::from(""),
-    };
+    sim.cairo_version = payload.cairo_version;
     sim.wallet_address = payload.wallet_address;
     sim.calldata = payload.calldata;
     sim.nonce = u32::try_from(

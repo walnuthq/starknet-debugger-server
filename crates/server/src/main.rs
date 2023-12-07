@@ -22,6 +22,8 @@ use cookie::Cookie;
 use db::{Project, User};
 use dotenv::dotenv;
 use handlers::{simulate::simulate, simulate_trace::simulate_trace, simulations::get_simulations};
+use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
@@ -73,6 +75,14 @@ async fn auth_middleware<B>(
     Ok(next.run(req).await)
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct Claims {
+    email: String,
+    sub: String,
+    projects: Vec<String>,
+    iat: i32,
+}
+
 async fn user_auth_middleware<B>(
     State(_state): State<Arc<AppState>>,
     mut req: Request<B>,
@@ -106,49 +116,39 @@ async fn user_auth_middleware<B>(
         };
 
         if let Some(token) = session_token {
-            let user_result = sqlx::query!(
-                r#"
-                SELECT users.* FROM users
-                JOIN sessions ON users.id = sessions."userId"
-                WHERE sessions."sessionToken" = $1
-                "#,
-                token
-            )
-            .fetch_one(&_state.db_pool)
-            .await;
+            if let Ok(data) = decode::<Claims>(
+                token,
+                &DecodingKey::from_secret(
+                    b"cc7e0d44fd473002f1c42167459001140ec6389b7353f8088f4d9a95f2f596f2",
+                ),
+                &Validation::new(Algorithm::HS256),
+            ) {
+                let claims = data.claims;
+                req.extensions_mut().insert(User { sub: claims.sub });
 
-            let user = match user_result {
-                Ok(user_row) => User { id: user_row.id },
-                Err(e) => {
-                    dbg!(e);
-                    return Err(StatusCode::UNAUTHORIZED);
+                let projects_result = sqlx::query!(
+                    r#"
+                    SELECT * FROM projects
+                    WHERE slug = ANY($1)
+                    "#,
+                    &claims.projects as _
+                )
+                .fetch_all(&_state.db_pool)
+                .await;
+
+                match projects_result {
+                    Ok(rows) => {
+                        let projects: Vec<Project> =
+                            rows.into_iter().map(|row| Project { id: row.id }).collect();
+                        req.extensions_mut().insert(projects);
+                    }
+                    Err(e) => {
+                        dbg!(e);
+                        // Handle the error, e.g., log it or return it
+                    }
                 }
-            };
-            let user_id = user.id.clone();
-
-            req.extensions_mut().insert(user);
-
-            let projects_result = sqlx::query!(
-                r#"
-                SELECT p.* FROM projects AS p
-                INNER JOIN users_projects AS up ON p.id = up.project_id
-                WHERE up.user_id = $1
-                "#,
-                user_id
-            )
-            .fetch_all(&_state.db_pool)
-            .await;
-
-            match projects_result {
-                Ok(rows) => {
-                    let projects: Vec<Project> =
-                        rows.into_iter().map(|row| Project { id: row.id }).collect();
-                    req.extensions_mut().insert(projects);
-                }
-                Err(e) => {
-                    dbg!(e);
-                    // Handle the error, e.g., log it or return it
-                }
+            } else {
+                return Err(StatusCode::UNAUTHORIZED);
             }
         }
     }

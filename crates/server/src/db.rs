@@ -26,5 +26,5 @@ pub struct Project {
 
 #[derive(Clone, Debug)]
 pub struct User {
-    pub id: i32,
+    pub sub: String,
 }
