@@ -6,8 +6,93 @@ use axum::{
 };
 use cookie::Cookie;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use redis;
 use serde::{Deserialize, Serialize};
+use sqlx::{Pool, Postgres};
+use std::collections::HashMap;
 use std::sync::Arc;
+use urlencoding::encode;
+
+async fn fetch_users_and_projects(db_pool: &Pool<Postgres>) -> HashMap<String, Vec<Project>> {
+    let recs = (sqlx::query!(
+        r#"
+        SELECT p.*, u.email
+        FROM users u
+        LEFT JOIN users_projects up ON u.id = up.user_id
+        LEFT JOIN projects p ON up.project_id = p.id
+        "#
+    )
+    .fetch_all(db_pool)
+    .await)
+        .unwrap();
+
+    let mut users_projects_map: HashMap<String, Vec<Project>> = HashMap::new();
+
+    for rec in recs {
+        let user_email = rec.email.unwrap();
+
+        if let Some(project_id) = rec.id {
+            let project = Project {
+                id: project_id,
+                name: rec.name.unwrap(),
+            };
+            users_projects_map
+                .entry(user_email)
+                .or_insert_with(Vec::new)
+                .push(project);
+        } else {
+            // Ensure that every user is in the map, even if they have no projects
+            users_projects_map
+                .entry(user_email)
+                .or_insert_with(Vec::new);
+        }
+    }
+
+    users_projects_map
+}
+
+fn user_cache_key(user_email: &str) -> String {
+    format!("user:{}", encode(user_email))
+}
+
+pub async fn cache_all_users_and_projects(
+    redis_client: &redis::Client,
+    db_pool: &Pool<Postgres>,
+    expiry: i32,
+) {
+    let mut redis_conn = redis_client.get_connection().unwrap();
+    let all_users_projects = fetch_users_and_projects(db_pool).await;
+
+    let mut pipe = redis::pipe();
+
+    for (user_email, projects) in all_users_projects {
+        let serialized_projects = serde_json::to_string(&projects).unwrap();
+        pipe.cmd("SETEX")
+            .arg(user_cache_key(&user_email))
+            .arg(expiry)
+            .arg(&serialized_projects);
+    }
+
+    let _: () = pipe.query(&mut redis_conn).unwrap();
+}
+
+async fn get_user_projects(
+    redis_conn: &mut redis::Connection,
+    user_email: &String,
+) -> Vec<Project> {
+    let cached_value: Option<String> = redis::cmd("GET")
+        .arg(user_cache_key(&user_email))
+        .query(redis_conn)
+        .unwrap();
+
+    match cached_value {
+        Some(value) => {
+            let user_projects: Vec<Project> = serde_json::from_str(&value).unwrap();
+            user_projects
+        }
+        None => Vec::new(),
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
@@ -58,55 +143,14 @@ pub async fn user_auth_middleware<B>(
                 &Validation::new(Algorithm::HS256),
             ) {
                 let claims = data.claims;
-                let email = claims.email;
+                let user_email = claims.email;
 
-                // Check if user exists
-                let user_query = (sqlx::query!(
-                    r#"
-                    SELECT * FROM users WHERE email = $1
-                    "#,
-                    email
-                )
-                .fetch_optional(&_state.db_pool)
-                .await)
-                    .unwrap();
+                let mut redis_con = _state.redis_client.get_connection().unwrap();
+                let user_projects = get_user_projects(&mut redis_con, &user_email).await;
 
-                if let Some(user) = user_query {
-                    let projects_query = (sqlx::query!(
-                        r#"
-                        SELECT projects.*
-                        FROM projects
-                        INNER JOIN users_projects ON projects.id = users_projects.project_id
-                        WHERE users_projects.user_id = $1
-                        "#,
-                        user.id
-                    )
-                    .fetch_all(&_state.db_pool)
-                    .await)
-                        .unwrap();
+                req.extensions_mut().insert(User { email: user_email });
 
-                    let mut projects = Vec::new();
-                    for row in projects_query {
-                        projects.push(Project {
-                            id: row.id,
-                            name: row.name,
-                        });
-                    }
-                    req.extensions_mut().insert(projects);
-                } else {
-                    sqlx::query!(
-                        r#"
-                        INSERT INTO users (email) VALUES ($1) RETURNING *
-                        "#,
-                        email
-                    )
-                    .fetch_one(&_state.db_pool)
-                    .await;
-
-                    req.extensions_mut().insert(User { email });
-
-                    req.extensions_mut().insert(Vec::<Project>::new());
-                }
+                req.extensions_mut().insert(user_projects);
             } else {
                 return Err(StatusCode::UNAUTHORIZED);
             }

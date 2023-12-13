@@ -19,7 +19,7 @@ pub struct Simulation {
     pub status: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Project {
     pub id: i32,
     pub name: String,

@@ -21,11 +21,14 @@ use axum_prometheus::PrometheusMetricLayer;
 use db::Project;
 use dotenv::dotenv;
 use handlers::{
-    auth::user_auth_middleware, simulate::simulate, simulate_trace::simulate_trace,
+    auth::{cache_all_users_and_projects, user_auth_middleware},
+    simulate::simulate,
+    simulate_trace::simulate_trace,
     simulations::get_simulations,
 };
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
+use tokio::time::Duration;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -108,19 +111,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(tracing_subscriber::fmt::layer().json())
         .init();
 
-    // let redis_addr = std::env::var("REDIS_ADDR").unwrap_or("redis://127.0.0.1/".to_string());
+    let redis_addr = std::env::var("REDIS_ADDR").unwrap_or("redis://127.0.0.1/".to_string());
     let db_addr = std::env::var("DATABASE_URL").unwrap_or("postgres://".to_string());
     let pool = PgPoolOptions::new()
         .max_connections(2)
         .connect(&db_addr)
         .await?;
-    // let client = redis::Client::open(redis_addr)?;
+    let client = redis::Client::open(redis_addr)?;
+
+    let pool_for_background = pool.clone();
+    let client_for_background = client.clone();
+
+    // Schedule background task that runs refetch every 5 minutes
+    // TODO: Cross task concurrency issues exist here, but it's fine for now.
+    tokio::spawn(async move {
+        loop {
+            let _ =
+                cache_all_users_and_projects(&client_for_background, &pool_for_background, 60 * 5)
+                    .await;
+            tokio::time::sleep(Duration::from_secs((60 * 5) - 30)).await;
+        }
+    });
 
     sqlx::migrate!().run(&pool).await?;
 
     let shared_state = Arc::new(AppState {
         db_pool: pool,
-        // redis_client: Arc::new(client),
+        redis_client: client,
     });
 
     let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
