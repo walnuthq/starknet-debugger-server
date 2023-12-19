@@ -6,8 +6,7 @@ use axum::{
 };
 use blockifier::transaction::objects::TransactionExecutionInfo;
 use serde::Serialize;
-use simulate::simulate;
-use simulate::SimulationRes;
+use simulate::{simulate, SimulationRes};
 use sqlx::types::Uuid;
 use starknet::core::types::{
     CallType, EventContent, ExecuteInvocation, FeeEstimate, FieldElement, FunctionInvocation,
