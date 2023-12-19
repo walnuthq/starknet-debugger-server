@@ -1395,6 +1395,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "db"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "sqlx",
+]
+
+[[package]]
 name = "deadpool"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3807,18 +3816,17 @@ dependencies = [
  "axum",
  "axum-prometheus",
  "blockifier",
- "chrono",
  "cookie",
+ "db",
  "deadpool-redis",
  "dotenv",
  "forking",
  "jsonwebtoken",
- "num-bigint",
- "num-traits 0.2.17",
  "redis",
  "reqwest",
  "serde",
  "serde_json",
+ "simulate",
  "sqlx",
  "starknet",
  "starknet-abi",
@@ -3909,6 +3917,19 @@ dependencies = [
  "num-traits 0.2.17",
  "thiserror",
  "time",
+]
+
+[[package]]
+name = "simulate"
+version = "0.1.0"
+dependencies = [
+ "blockifier",
+ "forking",
+ "num-bigint",
+ "num-traits 0.2.17",
+ "serde",
+ "starknet",
+ "starknet_api",
 ]
 
 [[package]]

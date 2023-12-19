@@ -1,7 +1,7 @@
 use crate::app_state::AppState;
-use crate::db;
-use crate::utils::simulate::{convert_to_hex, create_fork_cached_state_at, get_block_context};
 use axum::{extract::State, http::StatusCode, Extension, Json};
+use db;
+use simulate::utils::{convert_to_hex, create_fork_cached_state_at, get_block_context};
 
 use blockifier::state::cached_state::CachedState;
 use blockifier::transaction::transaction_execution::Transaction;
