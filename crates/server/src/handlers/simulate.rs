@@ -155,8 +155,12 @@ fn create_rpc_client(chain_id: String, is_private: bool) -> JsonRpcClient<HttpTr
             _ => panic!("Invalid chain id"),
         },
         false => match chain_id.as_str() {
-            "0x534e5f474f45524c49" => "https://free-rpc.nethermind.io/goerli-juno",
-            "0x534e5f4d41494e" => "https://free-rpc.nethermind.io/mainnet-juno",
+            "0x534e5f474f45524c49" => {
+                "https://starknet-goerli.g.alchemy.com/v2/D2pgqj4yeZmmZyBY7tw-CMnO2nUL8n94"
+            }
+            "0x534e5f4d41494e" => {
+                "https://starknet-mainnet.g.alchemy.com/v2/9J1ION8Owu9eHgZeyWlE9-N0yEepGA58"
+            }
             _ => panic!("Invalid chain id"),
         },
     };
