@@ -27,76 +27,65 @@ pub struct SimulationsResponse {
 }
 
 pub async fn get_simulations(
-    Extension(projects): Extension<Vec<Project>>,
+    Extension(user_projects): Extension<Vec<Project>>,
     Extension(user): Extension<User>,
     State(state): State<Arc<AppState>>,
     Query(query): Query<SimulationsRequest>,
 ) -> Result<Json<Option<SimulationsResponse>>, StatusCode> {
-    let project = if let Some(project_slug) = query.project_slug.clone() {
-        let project = projects.iter().find(|p| p.slug == project_slug).cloned();
+    let project: Project = if let Some(project_slug) = query.project_slug.clone() {
+        let project = user_projects
+            .iter()
+            .find(|p| p.slug == project_slug)
+            .cloned();
         match project {
-            Some(project) => Some(project),
+            Some(project) => project,
             None => {
                 if user.email.ends_with("@walnut.dev") {
+                    // Admin access
                     let project_slug = query.project_slug.clone().unwrap_or_default();
+                    // TODO: cache projects separately and use cache here
                     match sqlx::query!("SELECT * FROM projects WHERE slug = $1", project_slug)
                         .fetch_one(&state.db_pool)
                         .await
                     {
-                        Ok(row) => {
-                            let project = Some(Project {
-                                id: row.id,
-                                name: row.name,
-                                slug: row.slug,
-                                // unpack other fields here
-                            });
-                            project
+                        Ok(row) => Project {
+                            id: row.id,
+                            name: row.name,
+                            slug: row.slug,
+                        },
+                        Err(_) => {
+                            // Poject not found
+                            return Err(StatusCode::NOT_FOUND);
                         }
-                        Err(_) => None,
                     }
                 } else {
-                    None
+                    // Project not found and no admin access
+                    return Err(StatusCode::NOT_FOUND);
                 }
             }
         }
     } else {
-        projects.first().cloned()
+        // No project slug in query
+        let project = user_projects.first().cloned();
+        if let Some(project) = project {
+            project
+        } else {
+            // No projects linked to user
+            return Err(StatusCode::NOT_FOUND);
+        }
     };
 
-    if project.is_none() {
-        return Ok(Json(None));
-    }
-
-    let project = project.unwrap().clone();
-    let simulations = match query.project_slug {
-        Some(project_slug) => {
-            match sqlx::query_as!(
-                Simulation,
-                "SELECT simulations.*
-                FROM simulations
-                JOIN projects ON simulations.project_id = projects.id
-                WHERE projects.slug = $1
-                ORDER BY simulations.created_at DESC;",
-                project_slug,
-            )
-            .fetch_all(&state.db_pool)
-            .await
-            {
-                Ok(rows) => rows,
-                Err(_) => Vec::new(),
-            }
-        }
-        None => {
-            match sqlx::query_as!(Simulation,
-                "SELECT simulations.* FROM simulations WHERE project_id = $1 ORDER BY created_at DESC;",
-                project.id
-            )
-            .fetch_all(&state.db_pool)
-            .await
-            {
-                Ok(rows) => rows,
-                Err(_) => Vec::new(),
-            }
+    let simulations = match sqlx::query_as!(
+        Simulation,
+        "SELECT simulations.* FROM simulations WHERE project_id = $1 ORDER BY created_at DESC;",
+        project.id
+    )
+    .fetch_all(&state.db_pool)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(_) => {
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
 
@@ -130,6 +119,6 @@ pub async fn get_simulations(
             total_simulations: total_simulations_count,
             unique_wallet_count,
         },
-        project: project.clone(),
+        project,
     })))
 }
