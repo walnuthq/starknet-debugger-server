@@ -25,6 +25,7 @@ use handlers::{
     simulate_trace::{simulate_trace, simulate_transaction},
     simulations::get_simulations,
 };
+use reverse_proxy_service::{self, Static};
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use tokio::time::Duration;
@@ -162,6 +163,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ))
         .layer(CorsLayer::permissive());
 
+    // For https
+    let rpc_proxy_mainnet = reverse_proxy_service::builder_http("free-rpc.nethermind.io").unwrap();
+    let rpc_proxy_mainnet_path = "/mainnet-juno";
+    let rpc_proxy_goerli = rpc_proxy_mainnet.clone();
+    let rpc_proxy_goerli_path = "/goerli-juno";
+    // For http (localhost)
+    // let rpc_proxy_mainnet = reverse_proxy_service::builder_http("g.w.lavanet.xyz:80").unwrap();
+    // let rpc_proxy_mainnet_path = "/gateway/strk/rpc-http/d06eba6d0066ec8b528e307b574445f6";
+    // let rpc_proxy_goerli = rpc_proxy_mainnet.clone();
+    // let rpc_proxy_goerli_path = "/gateway/strkt/rpc-http/d06eba6d0066ec8b528e307b574445f6";
+
     let app = Router::new()
         .route("/v1/simulate", post(simulate))
         .route_layer(middleware::from_fn_with_state(
@@ -175,6 +187,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/_ah/warmup", get(|| async { "OK" }))
         .with_state(shared_state)
         .route("/metrics", get(|| async move { metric_handle.render() }))
+        .route_service(
+            "/rpc/0x534e5f474f45524c49",
+            rpc_proxy_goerli.build(Static(rpc_proxy_goerli_path)),
+        )
+        .route_service(
+            "/rpc/0x534e5f4d41494e",
+            rpc_proxy_mainnet.build(Static(rpc_proxy_mainnet_path)),
+        )
         .layer(prometheus_layer)
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .layer(CorsLayer::permissive());
