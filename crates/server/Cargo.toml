@@ -32,4 +32,3 @@ cookie.workspace = true
 jsonwebtoken.workspace = true
 urlencoding.workspace = true
 deadpool-redis.workspace = true
-reverse-proxy-service.workspace = true

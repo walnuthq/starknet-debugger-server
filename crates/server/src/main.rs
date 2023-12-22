@@ -5,12 +5,11 @@ extern crate dotenv;
 
 use app_state::AppState;
 use axum::{
+    body::Body,
     extract::{Path, State},
-    http::Method,
-    http::Request,
-    http::StatusCode,
+    http::{header, HeaderValue, Method, Request, StatusCode},
     middleware::{self, Next},
-    response::Response,
+    response::{IntoResponse, Response},
     routing::get,
     routing::post,
     Json, Router,
@@ -25,7 +24,6 @@ use handlers::{
     simulate_trace::{simulate_trace, simulate_transaction},
     simulations::get_simulations,
 };
-use reverse_proxy_service::{self, Static};
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use tokio::time::Duration;
@@ -105,6 +103,20 @@ async fn auth_middleware<B>(
     Ok(next.run(req).await)
 }
 
+async fn forward_post_request(url: &str, req: Request<Body>) -> impl IntoResponse {
+    let client = reqwest::Client::new();
+    let res = client.post(url).body(req.into_body()).send().await.unwrap();
+    let bytes = res.bytes().await.unwrap();
+
+    let mut response: Response<Body> = Response::new(bytes.into());
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+
+    response
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
@@ -163,17 +175,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ))
         .layer(CorsLayer::permissive());
 
-    // For https
-    let rpc_proxy_mainnet = reverse_proxy_service::builder_http("free-rpc.nethermind.io").unwrap();
-    let rpc_proxy_mainnet_path = "/mainnet-juno";
-    let rpc_proxy_goerli = rpc_proxy_mainnet.clone();
-    let rpc_proxy_goerli_path = "/goerli-juno";
-    // For http (localhost)
-    // let rpc_proxy_mainnet = reverse_proxy_service::builder_http("g.w.lavanet.xyz:80").unwrap();
-    // let rpc_proxy_mainnet_path = "/gateway/strk/rpc-http/d06eba6d0066ec8b528e307b574445f6";
-    // let rpc_proxy_goerli = rpc_proxy_mainnet.clone();
-    // let rpc_proxy_goerli_path = "/gateway/strkt/rpc-http/d06eba6d0066ec8b528e307b574445f6";
-
     let app = Router::new()
         .route("/v1/simulate", post(simulate))
         .route_layer(middleware::from_fn_with_state(
@@ -187,13 +188,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/_ah/warmup", get(|| async { "OK" }))
         .with_state(shared_state)
         .route("/metrics", get(|| async move { metric_handle.render() }))
-        .route_service(
+        .route(
             "/rpc/0x534e5f474f45524c49",
-            rpc_proxy_goerli.build(Static(rpc_proxy_goerli_path)),
+            post(|req| forward_post_request("https://free-rpc.nethermind.io/goerli-juno", req)),
         )
-        .route_service(
+        .route(
             "/rpc/0x534e5f4d41494e",
-            rpc_proxy_mainnet.build(Static(rpc_proxy_mainnet_path)),
+            post(|req| forward_post_request("https://free-rpc.nethermind.io/mainnet-juno", req)),
         )
         .layer(prometheus_layer)
         .layer(tower_http::trace::TraceLayer::new_for_http())
