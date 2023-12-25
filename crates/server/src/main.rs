@@ -1,4 +1,5 @@
 mod app_state;
+mod config;
 mod handlers;
 
 extern crate dotenv;
@@ -15,6 +16,7 @@ use axum::{
     Json, Router,
 };
 use axum_prometheus::PrometheusMetricLayer;
+use config::rpc_url;
 use db::Project;
 use deadpool_redis;
 use dotenv::dotenv;
@@ -190,11 +192,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/metrics", get(|| async move { metric_handle.render() }))
         .route(
             "/rpc/0x534e5f474f45524c49",
-            post(|req| forward_post_request("https://free-rpc.nethermind.io/goerli-juno", req)),
+            post(|req| forward_post_request(rpc_url("0x534e5f474f45524c49"), req)),
         )
         .route(
             "/rpc/0x534e5f4d41494e",
-            post(|req| forward_post_request("https://free-rpc.nethermind.io/mainnet-juno", req)),
+            post(|req| forward_post_request(rpc_url("0x534e5f4d41494e"), req)),
         )
         .layer(prometheus_layer)
         .layer(tower_http::trace::TraceLayer::new_for_http())
