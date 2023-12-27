@@ -129,17 +129,26 @@ pub async fn simulate(
 
     let tx_info = tx.execute(&mut tx_state, &block_context, true, false);
 
+    let mut error_message: Option<String> = None;
+
     let sim_status = match tx_info {
         Ok(tx) => match tx.revert_error {
-            Some(_) => "failure",
+            Some(err) => {
+                error_message = Some(err);
+                "failure"
+            }
             None => "success",
         },
-        Err(_) => "failure",
+        Err(err) => {
+            error_message = Some(err.to_string());
+            "failure"
+        }
     };
 
     sqlx::query!(
-        "UPDATE simulations SET status = $1 WHERE id = $2",
+        "UPDATE simulations SET status = $1, error_message = $2 WHERE id = $3",
         sim_status,
+        error_message,
         id,
     )
     .execute(&state.db_pool)
