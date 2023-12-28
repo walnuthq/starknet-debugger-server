@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 #[derive(Serialize, Deserialize)]
 pub struct SimulationsRequest {
-    wallet_address: Option<String>,
+    error_message: Option<String>,
     project_slug: Option<String>,
 }
 
@@ -82,18 +82,29 @@ pub async fn get_simulations(
         }
     };
 
-    let simulations = match sqlx::query_as!(
-        Simulation,
-        "SELECT simulations.* FROM simulations WHERE project_id = $1 ORDER BY created_at DESC;",
-        project.id
-    )
-    .fetch_all(&state.db_pool)
-    .await
-    {
-        Ok(rows) => rows,
-        Err(_) => {
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    let simulations = match match query.error_message {
+        Some(error_message) => {
+            sqlx::query_as!(
+                Simulation,
+                "SELECT simulations.* FROM simulations WHERE project_id = $1 AND error_message = $2 ORDER BY created_at DESC;",
+                project.id,
+                error_message
+            )
+            .fetch_all(&state.db_pool)
+            .await
         }
+        None => {
+            sqlx::query_as!(
+                Simulation,
+                "SELECT simulations.* FROM simulations WHERE project_id = $1 ORDER BY created_at DESC;",
+                project.id
+            )
+            .fetch_all(&state.db_pool)
+            .await
+        }
+    } {
+        Ok(simulations) => simulations,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
     let (
