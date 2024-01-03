@@ -178,7 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let user_auth_routes = Router::new()
         .route("/v1/simulations", get(get_simulations))
-        .route("/v1/common-errors", get(get_common_errors))
+        .route("/v1/simulations/common-errors", get(get_common_errors))
         .layer(middleware::from_fn_with_state(
             shared_state.clone(),
             user_auth_middleware,
