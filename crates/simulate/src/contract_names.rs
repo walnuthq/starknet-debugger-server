@@ -41,8 +41,8 @@ impl ContractNamesFetcher {
         simulation_call_trace: &mut SimulationCallTrace,
     ) {
         self.get_contract_addresses(simulation_call_trace);
-        self.contract_names = self.fetch_contract_names_internal().await;
-        self.enhance_trace_with_contract_names_internal(simulation_call_trace);
+        self.contract_names = self.fetch_contract_names().await;
+        self.update_simulation_call_trace(simulation_call_trace);
     }
 
     fn get_contract_addresses(&mut self, simulation_call_trace: &SimulationCallTrace) {
@@ -58,7 +58,7 @@ impl ContractNamesFetcher {
         }
     }
 
-    async fn fetch_contract_names_internal(&self) -> HashMap<ContractAddress, ContractName> {
+    async fn fetch_contract_names(&self) -> HashMap<ContractAddress, ContractName> {
         let name_method_selector: FieldElement = selector!("name").into();
         let symbol_method_selector: FieldElement = selector!("symbol").into();
 
@@ -121,10 +121,7 @@ impl ContractNamesFetcher {
         None
     }
 
-    fn enhance_trace_with_contract_names_internal(
-        &self,
-        simulation_call_trace: &mut SimulationCallTrace,
-    ) {
+    fn update_simulation_call_trace(&self, simulation_call_trace: &mut SimulationCallTrace) {
         if let Some(contract_name) = self
             .contract_names
             .get(&simulation_call_trace.entry_point.storage_address)
@@ -135,7 +132,7 @@ impl ContractNamesFetcher {
                 contract_name.token_symbol.clone();
         }
         for nested_call in &mut simulation_call_trace.nested_calls {
-            self.enhance_trace_with_contract_names_internal(nested_call);
+            self.update_simulation_call_trace(nested_call);
         }
     }
 }
