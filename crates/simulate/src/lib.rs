@@ -353,7 +353,6 @@ pub async fn simulate_transaction_by_hash(
 fn extract_transaction_receipt(
     transaction_receipt: MaybePendingTransactionReceipt,
 ) -> Option<(BlockNumber, ExecutionResult)> {
-    dbg!("{:?}", &transaction_receipt);
     match transaction_receipt {
         MaybePendingTransactionReceipt::Receipt(receipt) => match receipt {
             TransactionReceipt::Invoke(invoke_receipt) => Some((
