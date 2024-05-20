@@ -33,6 +33,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
 use starknet::core::types::ContractClass;
+use starknet::core::types::ExecutionResult;
 use starknet::core::types::MaybePendingTransactionReceipt;
 use starknet::core::types::TransactionReceipt;
 use starknet::core::types::{FieldElement, InvokeTransaction, Transaction};
@@ -299,6 +300,7 @@ pub struct TransactionSimulationResult {
     pub nonce: u64,
     pub sender_address: String,
     pub calldata: Vec<String>,
+    pub execution_result: ExecutionResult,
 }
 
 pub async fn simulate_transaction_by_hash(
@@ -316,7 +318,9 @@ pub async fn simulate_transaction_by_hash(
                 .get_transaction_receipt(transaction_hash)
                 .await;
             if let Ok(transaction_receipt) = transaction_receipt {
-                if let Some(block_number) = extract_transaction_receipt(transaction_receipt) {
+                if let Some((block_number, execution_result)) =
+                    extract_transaction_receipt(transaction_receipt)
+                {
                     let simulation_result = simulate(SimulationArgs {
                         chain_id: chain_id.clone(),
                         block_number,
@@ -337,6 +341,7 @@ pub async fn simulate_transaction_by_hash(
                         nonce: nonce.0.try_into().unwrap(),
                         sender_address: sender_address.0.to_string(),
                         calldata,
+                        execution_result,
                     });
                 }
             }
@@ -347,12 +352,14 @@ pub async fn simulate_transaction_by_hash(
 
 fn extract_transaction_receipt(
     transaction_receipt: MaybePendingTransactionReceipt,
-) -> Option<BlockNumber> {
+) -> Option<(BlockNumber, ExecutionResult)> {
+    dbg!("{:?}", &transaction_receipt);
     match transaction_receipt {
         MaybePendingTransactionReceipt::Receipt(receipt) => match receipt {
-            TransactionReceipt::Invoke(invoke_receipt) => {
-                Some(BlockNumber(invoke_receipt.block_number))
-            }
+            TransactionReceipt::Invoke(invoke_receipt) => Some((
+                BlockNumber(invoke_receipt.block_number),
+                invoke_receipt.execution_result,
+            )),
             _ => None,
         },
         _ => None,
