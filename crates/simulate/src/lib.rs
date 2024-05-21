@@ -96,6 +96,7 @@ impl From<SimulationRawArgs> for SimulationArgs {
 pub struct SimulationInfo {
     pub call_trace: SimulationCallTrace,
     pub max_nested_error_level: usize,
+    pub execution_result: ExecutionResult,
 }
 
 pub async fn simulate(args: SimulationArgs) -> SimulationInfo {
@@ -240,11 +241,17 @@ fn get_simulation_info(
         &mut max_nested_error_level,
     );
 
-    update_error_message(&mut call_trace, max_nested_error_level);
+    let mut execution_result: ExecutionResult = ExecutionResult::Succeeded;
+    update_error_message(
+        &mut call_trace,
+        max_nested_error_level,
+        &mut execution_result,
+    );
 
     SimulationInfo {
         call_trace,
         max_nested_error_level,
+        execution_result,
     }
 }
 
@@ -300,7 +307,6 @@ pub struct TransactionSimulationResult {
     pub nonce: u64,
     pub sender_address: String,
     pub calldata: Vec<String>,
-    pub execution_result: ExecutionResult,
 }
 
 pub async fn simulate_transaction_by_hash(
@@ -341,7 +347,6 @@ pub async fn simulate_transaction_by_hash(
                         nonce: nonce.0.try_into().unwrap(),
                         sender_address: sender_address.0.to_string(),
                         calldata,
-                        execution_result,
                     });
                 }
             }
@@ -416,7 +421,11 @@ fn get_additional_info(
     additional_info
 }
 
-fn update_error_message(call_trace: &mut SimulationCallTrace, max_nested_error_level: usize) {
+fn update_error_message(
+    call_trace: &mut SimulationCallTrace,
+    max_nested_error_level: usize,
+    execution_result: &mut ExecutionResult,
+) {
     if call_trace.nested_calls.is_empty() {
         return;
     }
@@ -428,18 +437,22 @@ fn update_error_message(call_trace: &mut SimulationCallTrace, max_nested_error_l
                     CallFailure::Panic { panic_data } => {
                         match decode_felt252(panic_data.to_vec()) {
                             Ok(decoded) => {
-                                nested_trace.additional_info.error_message = Some(decoded);
+                                nested_trace.additional_info.error_message = Some(decoded.clone());
+                                *execution_result = ExecutionResult::Reverted { reason: decoded };
                             }
                             Err(_) => panic!("Failed to decode felt252"),
                         }
                     }
                     CallFailure::Error { msg } => {
                         nested_trace.additional_info.error_message = Some(msg.to_string());
+                        *execution_result = ExecutionResult::Reverted {
+                            reason: msg.to_string(),
+                        };
                     }
                 }
             }
         } else {
-            update_error_message(nested_trace, max_nested_error_level);
+            update_error_message(nested_trace, max_nested_error_level, execution_result);
         }
     }
 }
