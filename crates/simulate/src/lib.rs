@@ -212,7 +212,10 @@ pub struct SimulationCallTraceAdditionalInfo {
     erc20_token_symbol: Option<String>,
     error_message: Option<String>,
     function_result: Option<Vec<String>>,
+    function_return_result_types: Option<Vec<String>>,
     function_arguments: Option<Vec<String>>,
+    function_arguments_names: Option<Vec<String>>,
+    function_arguments_types: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Debug)]
@@ -404,7 +407,10 @@ fn get_additional_info(
         erc20_token_symbol: None,
         error_message: None,
         function_result: None,
+        function_return_result_types: None,
         function_arguments: None,
+        function_arguments_names: None,
+        function_arguments_types: None,
     };
     if let Some(class_hash) = class_hash {
         let contract_class = fork_state_reader.get_compiled_contract_class_from_cache(class_hash);
@@ -419,6 +425,12 @@ fn get_additional_info(
                     additional_info.entry_point_interface_name =
                         abi_processor.entry_point_interface_name;
                     additional_info.is_erc20_token = abi_processor.is_erc20_token;
+                    additional_info.function_arguments_names =
+                        abi_processor.function_arguments_names;
+                    additional_info.function_arguments_types =
+                        abi_processor.function_arguments_types;
+                    additional_info.function_return_result_types =
+                        abi_processor.function_return_result_types;
                 }
                 _ => {}
             };
