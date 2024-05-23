@@ -55,8 +55,8 @@ use std::cell::Ref;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 use std::sync::Arc;
+use walnut_shared::felt252_to_hex;
 use walnut_shared::{create_rpc_client, decode_felt252};
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SimulationRawArgs {
     pub chain_id: String,
@@ -211,6 +211,8 @@ pub struct SimulationCallTraceAdditionalInfo {
     erc20_token_name: Option<String>,
     erc20_token_symbol: Option<String>,
     error_message: Option<String>,
+    function_result: Option<Vec<String>>,
+    function_arguments: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Debug)]
@@ -295,6 +297,8 @@ fn get_simulation_call_trace(
             fork_state_reader,
             call_trace_ref.entry_point.class_hash,
             call_trace_ref.entry_point.entry_point_selector,
+            call_trace_ref.result.clone(),
+            call_trace_ref.entry_point.calldata.clone(),
         ),
     }
 }
@@ -324,9 +328,7 @@ pub async fn simulate_transaction_by_hash(
                 .get_transaction_receipt(transaction_hash)
                 .await;
             if let Ok(transaction_receipt) = transaction_receipt {
-                if let Some((block_number, execution_result)) =
-                    extract_transaction_receipt(transaction_receipt)
-                {
+                if let Some(block_number) = extract_transaction_receipt(transaction_receipt) {
                     let simulation_result = simulate(SimulationArgs {
                         chain_id: chain_id.clone(),
                         block_number,
@@ -357,13 +359,12 @@ pub async fn simulate_transaction_by_hash(
 
 fn extract_transaction_receipt(
     transaction_receipt: MaybePendingTransactionReceipt,
-) -> Option<(BlockNumber, ExecutionResult)> {
+) -> Option<BlockNumber> {
     match transaction_receipt {
         MaybePendingTransactionReceipt::Receipt(receipt) => match receipt {
-            TransactionReceipt::Invoke(invoke_receipt) => Some((
-                BlockNumber(invoke_receipt.block_number),
-                invoke_receipt.execution_result,
-            )),
+            TransactionReceipt::Invoke(invoke_receipt) => {
+                Some(BlockNumber(invoke_receipt.block_number))
+            }
             _ => None,
         },
         _ => None,
@@ -392,6 +393,8 @@ fn get_additional_info(
     fork_state_reader: &ForkStateReader,
     class_hash: Option<ClassHash>,
     entry_point_selector: EntryPointSelector,
+    result: CallResult,
+    calldata: Calldata,
 ) -> SimulationCallTraceAdditionalInfo {
     let mut additional_info = SimulationCallTraceAdditionalInfo {
         entry_point_function_name: None,
@@ -400,12 +403,15 @@ fn get_additional_info(
         erc20_token_name: None,
         erc20_token_symbol: None,
         error_message: None,
+        function_result: None,
+        function_arguments: None,
     };
     if let Some(class_hash) = class_hash {
         let contract_class = fork_state_reader.get_compiled_contract_class_from_cache(class_hash);
         if let Some(contract_class) = contract_class {
             match contract_class {
                 ContractClass::Sierra(class) => {
+                    dbg!("Entry point selector {:?}", entry_point_selector);
                     let mut abi_processor = AbiProcessor::new(entry_point_selector);
                     abi_processor.process_abi(class.abi);
                     additional_info.entry_point_function_name =
@@ -418,6 +424,17 @@ fn get_additional_info(
             };
         }
     }
+    if let CallResult::Success { ret_data } = result {
+        match felt252_to_hex(ret_data.to_vec()) {
+            Ok(hex) => {
+                additional_info.function_result = Some(hex);
+            }
+            Err(_) => panic!("Failed to decode felt252"),
+        }
+    }
+
+    let calldata_hex: Vec<String> = calldata.0.iter().map(|x| x.to_string()).collect();
+    additional_info.function_arguments = Some(calldata_hex);
     additional_info
 }
 
