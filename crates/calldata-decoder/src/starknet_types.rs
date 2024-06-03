@@ -34,7 +34,7 @@ impl fmt::Display for EDataType {
         match self {
             EDataType::Primitive(primitive) => write!(f, "{:?}", primitive),
             EDataType::Array(inner_type) => write!(f, "Array<{:?}>", inner_type),
-            EDataType::Struct(name) => write!(f, "{:?}", name),
+            EDataType::Struct(name) => write!(f, "{}", name),
         }
     }
 }
