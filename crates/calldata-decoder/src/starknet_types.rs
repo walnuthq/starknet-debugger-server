@@ -1,3 +1,5 @@
+use std::fmt;
+
 #[derive(Debug)]
 pub enum EDataType {
     Primitive(EPrimitiveType),
@@ -25,6 +27,16 @@ pub enum EPrimitiveType {
     EthAddress,
     ClassHash,
     Bytes31,
+}
+
+impl fmt::Display for EDataType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EDataType::Primitive(primitive) => write!(f, "{:?}", primitive),
+            EDataType::Array(inner_type) => write!(f, "Array<{:?}>", inner_type),
+            EDataType::Struct(name) => write!(f, "{:?}", name),
+        }
+    }
 }
 
 impl EPrimitiveType {

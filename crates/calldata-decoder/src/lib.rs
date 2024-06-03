@@ -28,12 +28,7 @@ pub fn decode_datas(
                     ValueType::Single(data.to_string()),
                 )))
             }
-            EDataType::Array(_) => {
-                let inner_type = if data_type.starts_with("core::array::Array::<") {
-                    &data_type["core::array::Array::<".len()..data_type.len() - 1]
-                } else {
-                    &data_type["@core::array::Array::<".len()..data_type.len() - 1]
-                };
+            EDataType::Array(inner_type) => {
                 let array_length = usize::from_str_radix(
                     datas
                         .get(*data_index)
@@ -47,8 +42,12 @@ pub fn decode_datas(
                 let mut decoded_array = Vec::new();
                 for _ in 0..array_length {
                     // For the struct type include the type and name of struct memebers
-                    let mut decoded_item =
-                        decode_struct_item(struct_items, datas, inner_type, data_index);
+                    let mut decoded_item = decode_struct_item(
+                        struct_items,
+                        datas,
+                        &inner_type.to_string(),
+                        data_index,
+                    );
                     if decoded_item.is_empty() {
                         //For the primitive types include only the value
                         let data = datas[*data_index].to_string();

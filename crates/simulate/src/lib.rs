@@ -461,46 +461,39 @@ fn get_additional_info(
             };
         }
     }
+
     if let CallResult::Success { ret_data } = result {
-        match felt252_to_hex(ret_data.to_vec()) {
-            Ok(ret_hex) => match additional_info.function_return_result_types.clone() {
-                Some(function_return_result_types) => {
-                    let decoded_result = decode_datas(
-                        &ret_hex,
-                        &function_return_result_types,
-                        &vec![],
-                        &struct_items,
-                        &mut 0,
-                    );
-                    additional_info.function_result = Some(json!(decoded_result));
-                }
-                _ => {
-                    return additional_info;
-                }
-            },
-            Err(_) => panic!("Failed to decode return data"),
+        if let Ok(ret_hex) = felt252_to_hex(ret_data.to_vec()) {
+            if let Some(function_return_result_types) =
+                additional_info.function_return_result_types.clone()
+            {
+                let decoded_result = decode_datas(
+                    &ret_hex,
+                    &function_return_result_types,
+                    &vec![],
+                    &struct_items,
+                    &mut 0,
+                );
+                additional_info.function_result = Some(json!(decoded_result));
+            }
+        } else {
+            panic!("Failed to decode return data");
         }
     }
-
-    match (
+    if let (Some(function_arguments_types), Some(function_arguments_names)) = (
         additional_info.function_arguments_types.clone(),
         additional_info.function_arguments_names.clone(),
     ) {
-        (Some(function_arguments_types), Some(function_arguments_names)) => {
-            let calldata_hex: Vec<String> = calldata.0.iter().map(|x| x.to_string()).collect();
-            let decoded_arguments = decode_datas(
-                &calldata_hex,
-                &function_arguments_types,
-                &function_arguments_names,
-                &struct_items,
-                &mut 0,
-            );
+        let calldata_hex: Vec<String> = calldata.0.iter().map(|x| x.to_string()).collect();
+        let decoded_arguments = decode_datas(
+            &calldata_hex,
+            &function_arguments_types,
+            &function_arguments_names,
+            &struct_items,
+            &mut 0,
+        );
 
-            additional_info.calldata_decoded = Some(json!(decoded_arguments));
-        }
-        _ => {
-            return additional_info;
-        }
+        additional_info.calldata_decoded = Some(json!(decoded_arguments));
     }
     additional_info
 }
