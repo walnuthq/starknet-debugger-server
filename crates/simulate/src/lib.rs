@@ -209,6 +209,7 @@ fn run_simulation(
 
 #[derive(Serialize, Debug)]
 pub struct SimulationCallTraceAdditionalInfo {
+    contract_name: Option<String>,
     entry_point_function_name: Option<String>,
     entry_point_interface_name: Option<String>,
     is_erc20_token: bool,
@@ -424,6 +425,7 @@ fn get_additional_info(
     calldata: Calldata,
 ) -> SimulationCallTraceAdditionalInfo {
     let mut additional_info = SimulationCallTraceAdditionalInfo {
+        contract_name: None,
         entry_point_function_name: None,
         entry_point_interface_name: None,
         is_erc20_token: false,
