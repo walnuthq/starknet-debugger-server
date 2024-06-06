@@ -156,7 +156,7 @@ impl ContractNamesFetcher {
         let url = format!("{}contracts/{}", self.voyager_api, contract_address);
         let call_result = client
             .get(&url)
-            .header("x-api-key", std::env::var("VOYAGER_API_KEY").unwrap())
+            .header("x-api-key", "Ji6ugSKp8L64EvevISdfb9CgY0sUBEhz6P4uPYOB")
             .send()
             .await;
         match call_result {

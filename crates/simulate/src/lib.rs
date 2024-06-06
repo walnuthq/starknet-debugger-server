@@ -53,6 +53,7 @@ use starknet_api::transaction::ResourceBoundsMapping;
 use starknet_api::transaction::TransactionVersion;
 use starknet_api::transaction::{Calldata, TransactionHash, TransactionSignature};
 use starknet_api::{contract_address, patricia_key, stark_felt};
+use starknet_selector_decoder::get_selector;
 use std::cell::Ref;
 use std::collections::BTreeMap;
 use std::str::FromStr;
@@ -66,6 +67,7 @@ pub struct SimulationRawArgs {
     pub nonce: u64,
     pub sender_address: String,
     pub calldata: Vec<String>,
+    pub transaction_version: usize,
 }
 
 #[derive(Debug)]
@@ -75,6 +77,7 @@ pub struct SimulationArgs {
     pub nonce: Nonce,
     pub sender_address: ContractAddress,
     pub calldata: Calldata,
+    pub transaction_version: TransactionVersion,
 }
 
 impl From<SimulationRawArgs> for SimulationArgs {
@@ -90,6 +93,15 @@ impl From<SimulationRawArgs> for SimulationArgs {
             nonce: Nonce(StarkFelt::from(raw_args.nonce)),
             sender_address: contract_address!(raw_args.sender_address.as_str()),
             calldata: Calldata(calldata.into()),
+            transaction_version: match raw_args.transaction_version {
+                0 => TransactionVersion::ZERO,
+                1 => TransactionVersion::ONE,
+                2 => TransactionVersion::TWO,
+                3 => TransactionVersion::THREE,
+                _ => {
+                    panic!("Invalid transaction version");
+                }
+            },
         }
     }
 }
@@ -330,6 +342,7 @@ pub struct TransactionSimulationResult {
     pub nonce: u64,
     pub sender_address: String,
     pub calldata: Vec<String>,
+    pub transaction_version: usize,
 }
 
 pub async fn simulate_transaction_by_hash(
@@ -342,7 +355,9 @@ pub async fn simulate_transaction_by_hash(
         .get_transaction_by_hash(transaction_hash)
         .await;
     if let Ok(transaction) = transaction {
-        if let Some((nonce, sender_address, calldata)) = extract_submitted_tx(transaction) {
+        if let Some((nonce, sender_address, calldata, transaction_version)) =
+            extract_submitted_tx(transaction)
+        {
             let transaction_receipt = provider_client
                 .get_transaction_receipt(transaction_hash)
                 .await;
@@ -354,6 +369,7 @@ pub async fn simulate_transaction_by_hash(
                         nonce,
                         sender_address,
                         calldata: calldata.clone(),
+                        transaction_version,
                     })
                     .await;
                     let calldata = calldata
@@ -368,6 +384,7 @@ pub async fn simulate_transaction_by_hash(
                         nonce: nonce.0.try_into().unwrap(),
                         sender_address: sender_address.0.to_string(),
                         calldata,
+                        transaction_version: transaction_version.0.try_into().unwrap(),
                     });
                 }
             }
@@ -390,7 +407,9 @@ fn extract_transaction_receipt(
     }
 }
 
-fn extract_submitted_tx(transaction: Transaction) -> Option<(Nonce, ContractAddress, Calldata)> {
+fn extract_submitted_tx(
+    transaction: Transaction,
+) -> Option<(Nonce, ContractAddress, Calldata, TransactionVersion)> {
     match transaction {
         Transaction::Invoke(invoke_transaction) => match invoke_transaction {
             InvokeTransaction::V1(tx) => {
@@ -400,6 +419,7 @@ fn extract_submitted_tx(transaction: Transaction) -> Option<(Nonce, ContractAddr
                     Nonce(StarkFelt::from(tx.nonce)),
                     contract_address!(tx.sender_address),
                     Calldata(calldata.into()),
+                    TransactionVersion::ONE,
                 ))
             }
             InvokeTransaction::V3(tx) => {
@@ -409,6 +429,7 @@ fn extract_submitted_tx(transaction: Transaction) -> Option<(Nonce, ContractAddr
                     Nonce(StarkFelt::from(tx.nonce)),
                     contract_address!(tx.sender_address),
                     Calldata(calldata.into()),
+                    TransactionVersion::THREE,
                 ))
             }
             _ => None,
@@ -464,7 +485,33 @@ fn get_additional_info(
         }
     }
 
-    if let CallResult::Success { ret_data } = result {
+    get_function_name(&mut additional_info, &entry_point_selector);
+    get_function_result(&mut additional_info, &result, &struct_items);
+    get_function_arguments(&mut additional_info, &calldata, &struct_items);
+
+    additional_info
+}
+
+fn get_function_name(
+    additional_info: &mut SimulationCallTraceAdditionalInfo,
+    entry_point_selector: &EntryPointSelector,
+) {
+    if additional_info.entry_point_function_name.is_none() {
+        let entry_point_selector_str = entry_point_selector.0.to_string();
+        let selector = get_selector(&entry_point_selector_str);
+        match selector {
+            Some(name) => additional_info.entry_point_function_name = Some(name.to_string()),
+            None => additional_info.entry_point_function_name = None,
+        }
+    }
+}
+
+fn get_function_result(
+    additional_info: &mut SimulationCallTraceAdditionalInfo,
+    call_result: &CallResult,
+    struct_items: &Vec<StructItems>,
+) {
+    if let CallResult::Success { ret_data } = call_result {
         if let Ok(ret_hex) = felt252_to_hex(ret_data.to_vec()) {
             if let Some(function_return_result_types) =
                 additional_info.function_return_result_types.clone()
@@ -473,7 +520,7 @@ fn get_additional_info(
                     &ret_hex,
                     &function_return_result_types,
                     &vec![],
-                    &struct_items,
+                    struct_items,
                     &mut 0,
                 );
                 additional_info.function_result = Some(json!(decoded_result));
@@ -482,6 +529,13 @@ fn get_additional_info(
             panic!("Failed to decode return data");
         }
     }
+}
+
+fn get_function_arguments(
+    additional_info: &mut SimulationCallTraceAdditionalInfo,
+    calldata: &Calldata,
+    struct_items: &Vec<StructItems>,
+) {
     if let (Some(function_arguments_types), Some(function_arguments_names)) = (
         additional_info.function_arguments_types.clone(),
         additional_info.function_arguments_names.clone(),
@@ -497,7 +551,6 @@ fn get_additional_info(
 
         additional_info.calldata_decoded = Some(json!(decoded_arguments));
     }
-    additional_info
 }
 
 fn update_error_message(
