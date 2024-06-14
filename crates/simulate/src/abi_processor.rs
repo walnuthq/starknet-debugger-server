@@ -1,6 +1,7 @@
 use blockifier::abi::abi_utils::selector_from_name;
 use serde_json::{Map, Value};
 use starknet_api::core::EntryPointSelector;
+use walnut_shared::{Datas, EventItems, StructItems};
 
 pub struct AbiProcessor {
     pub entry_point_selector: EntryPointSelector,
@@ -11,6 +12,8 @@ pub struct AbiProcessor {
     pub function_arguments_types: Option<Vec<String>>,
     pub function_return_result_types: Option<Vec<String>>,
     view_and_external_fn_names: Vec<String>,
+    pub struct_items: Vec<StructItems>,
+    pub event_items: Vec<EventItems>,
 }
 
 impl AbiProcessor {
@@ -24,12 +27,138 @@ impl AbiProcessor {
             function_arguments_types: None,
             function_return_result_types: None,
             view_and_external_fn_names: Vec::new(),
+            struct_items: Vec::new(),
+            event_items: Vec::new(),
         }
     }
 
     pub fn process_abi(&mut self, abi: String) {
+        self.process_abi_event(&serde_json::from_str(abi.as_str()).unwrap());
+        self.process_abi_struct(&serde_json::from_str(abi.as_str()).unwrap());
         self.process_abi_internal(&serde_json::from_str(abi.as_str()).unwrap());
         self.check_if_erc20_token();
+    }
+
+    fn process_abi_event(&mut self, abi_value_array: &Vec<Value>) {
+        for item in abi_value_array {
+            if let Value::Object(obj) = item {
+                if obj.get("type") == Some(&Value::String("event".to_string())) {
+                    if obj.get("kind") == Some(&Value::String("struct".to_string())) {
+                        self.process_abi_event_members(obj);
+                    } else if obj.get("kind") == Some(&Value::String("enum".to_string())) {
+                        self.process_abi_event_variants(obj);
+                    } else {
+                        self.process_abi_event_data(obj);
+                    }
+                }
+            }
+        }
+    }
+
+    fn process_abi_event_members(&mut self, obj: &Map<String, Value>) {
+        if let Some(Value::String(name)) = obj.get("name") {
+            if let Some(Value::Array(event_members)) = obj.get("members") {
+                let mut datas = Vec::new();
+                for member in event_members {
+                    if let Value::Object(member_obj) = member {
+                        let member_name = member_obj.get("name").unwrap().as_str().unwrap();
+                        let member_type = member_obj.get("type").unwrap().as_str().unwrap();
+                        let data = Datas {
+                            names: member_name.to_string(),
+                            types: member_type.to_string(),
+                        };
+                        datas.push(data);
+                    }
+                }
+                let event_item = EventItems {
+                    name: name.rsplit("::").next().unwrap().to_string(),
+                    members: datas,
+                };
+                self.event_items.push(event_item);
+            }
+        }
+    }
+
+    fn process_abi_event_variants(&mut self, obj: &Map<String, Value>) {
+        if let Some(Value::String(name)) = obj.get("name") {
+            if let Some(Value::Array(event_members)) = obj.get("variants") {
+                let mut datas = Vec::new();
+                for member in event_members {
+                    if let Value::Object(member_obj) = member {
+                        let member_name = member_obj.get("name").unwrap().as_str().unwrap();
+                        let member_type = member_obj.get("type").unwrap().as_str().unwrap();
+                        let data = Datas {
+                            names: member_name.to_string(),
+                            types: member_type.to_string(),
+                        };
+                        datas.push(data);
+                    }
+                }
+                let event_item = EventItems {
+                    name: name.clone(),
+                    members: datas,
+                };
+                //self.event_items.push(event_item);
+            }
+        }
+    }
+
+    fn process_abi_event_data(&mut self, obj: &Map<String, Value>) {
+        if let Some(Value::String(name)) = obj.get("name") {
+            if let Some(Value::Array(event_datas)) = obj.get("data") {
+                let mut datas = Vec::new();
+                for member in event_datas {
+                    if let Value::Object(member_obj) = member {
+                        let member_name = member_obj.get("name").unwrap().as_str().unwrap();
+                        let member_type = member_obj.get("type").unwrap().as_str().unwrap();
+                        let data = Datas {
+                            names: member_name.to_string(),
+                            types: member_type.to_string(),
+                        };
+                        datas.push(data);
+                    }
+                }
+                let event_item = EventItems {
+                    name: name.rsplit("::").next().unwrap().to_string(),
+                    members: datas,
+                };
+                self.event_items.push(event_item);
+            }
+        }
+    }
+
+    fn process_abi_struct(&mut self, abi_value_array: &Vec<Value>) {
+        for item in abi_value_array {
+            if let Value::Object(obj) = item {
+                if obj.get("type") == Some(&Value::String("struct".to_string())) {
+                    self.process_abi_struct_members(obj);
+                }
+            }
+        }
+    }
+
+    fn process_abi_struct_members(&mut self, obj: &Map<String, Value>) {
+        if let Some(Value::String(name)) = obj.get("name") {
+            if let Some(Value::Array(struct_members)) = obj.get("members") {
+                let mut datas = Vec::new();
+                for member in struct_members {
+                    if let Value::Object(member_obj) = member {
+                        let member_name = member_obj.get("name").unwrap().as_str().unwrap();
+                        let member_type = member_obj.get("type").unwrap().as_str().unwrap();
+                        let data = Datas {
+                            names: member_name.to_string(),
+                            types: member_type.to_string(),
+                        };
+                        datas.push(data);
+                    }
+                }
+                let struct_item = StructItems {
+                    name: name.clone(),
+                    members: datas,
+                };
+                self.struct_items.push(struct_item);
+            }
+        }
     }
 
     fn process_abi_internal(&mut self, abi_value_array: &Vec<Value>) {
@@ -49,7 +178,7 @@ impl AbiProcessor {
             if let Some(Value::String(function_name)) = obj.get("name") {
                 if self.entry_point_function_name.is_none() {
                     let selector = selector_from_name(function_name.as_str());
-                    if selector == self.entry_point_selector {
+                    if self.entry_point_selector == selector {
                         self.entry_point_function_name = Some(function_name.clone());
                         self.process_function_arguments(obj);
                         self.process_function_results(obj);
@@ -60,6 +189,12 @@ impl AbiProcessor {
         } else if obj.get("state_mutability") == Some(&Value::String("view".to_string())) {
             if let Some(Value::String(function_name)) = obj.get("name") {
                 self.view_and_external_fn_names.push(function_name.clone());
+                let selector = selector_from_name(function_name.as_str());
+                if self.entry_point_selector == selector {
+                    self.entry_point_function_name = Some(function_name.clone());
+                    self.process_function_arguments(obj);
+                    self.process_function_results(obj);
+                }
             }
         }
     }
@@ -83,8 +218,8 @@ impl AbiProcessor {
         }
     }
 
-    fn process_function_results(&mut self, onj: &Map<String, Value>) {
-        if let Some(Value::Array(outputs)) = onj.get("outputs") {
+    fn process_function_results(&mut self, obj: &Map<String, Value>) {
+        if let Some(Value::Array(outputs)) = obj.get("outputs") {
             for output in outputs {
                 if let Value::Object(output_obj) = output {
                     if let Some(Value::String(arg_type)) = output_obj.get("type") {
