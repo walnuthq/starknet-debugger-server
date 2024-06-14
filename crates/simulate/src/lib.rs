@@ -28,6 +28,9 @@ use cheatnet::state::CallTrace;
 use cheatnet::state::CheatnetState;
 use cheatnet::state::ExtendedStateReader;
 use contract_names::ContractNamesFetcher;
+use internal_tracing::get_internal_fn_call_trace;
+use internal_tracing::source_code::fetch_source_code;
+use internal_tracing::source_code::SourceCode;
 use internal_tracing::InternalFnCallTraceEntryNode;
 use serde::Deserialize;
 use serde::Serialize;
@@ -53,6 +56,8 @@ use starknet_api::transaction::{Calldata, TransactionHash, TransactionSignature}
 use starknet_api::{contract_address, patricia_key, stark_felt};
 use std::cell::Ref;
 use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::Arc;
 use walnut_shared::felt252_to_hex;
@@ -97,6 +102,7 @@ pub struct SimulationInfo {
     pub call_trace: Option<SimulationCallTrace>,
     pub max_nested_error_level: usize,
     pub execution_result: Option<ExecutionResult>,
+    pub source_code: Option<SourceCode>,
 }
 
 pub async fn simulate(args: SimulationArgs) -> SimulationInfo {
@@ -249,15 +255,21 @@ fn get_simulation_info(
             call_trace: None,
             max_nested_error_level,
             execution_result: None,
+            source_code: None,
         };
     }
+
+    let mut used_source_files: HashMap<ClassHash, HashSet<String>> = HashMap::new();
 
     let mut call_trace = get_simulation_call_trace(
         fork_state_reader,
         call_trace_ref.nested_calls[0].borrow(),
         0,
         &mut max_nested_error_level,
+        &mut used_source_files,
     );
+
+    let source_code = fetch_source_code(used_source_files).ok();
 
     let mut execution_result: ExecutionResult = ExecutionResult::Succeeded;
     update_error_message(
@@ -270,6 +282,7 @@ fn get_simulation_info(
         call_trace: Some(call_trace),
         max_nested_error_level,
         execution_result: Some(execution_result),
+        source_code,
     }
 }
 
@@ -278,6 +291,7 @@ fn get_simulation_call_trace(
     call_trace_ref: Ref<CallTrace>,
     nested_level: usize,
     max_nested_error_level: &mut usize,
+    used_source_files: &mut HashMap<ClassHash, HashSet<String>>,
 ) -> SimulationCallTrace {
     let mut nested_calls = Vec::new();
     if call_trace_ref.nested_calls.is_empty()
@@ -298,9 +312,31 @@ fn get_simulation_call_trace(
             nested_call.borrow(),
             nested_level + 1,
             max_nested_error_level,
+            used_source_files,
         );
         nested_calls.push(nested_trace);
     }
+
+    let internal_fn_call_trace_result = get_internal_fn_call_trace(
+        call_trace_ref.entry_point.class_hash.unwrap(),
+        &call_trace_ref.relocated_memory.as_ref().unwrap(),
+        &call_trace_ref.vm_trace.as_ref().unwrap(),
+    );
+
+    let internal_fn_call_trace = match internal_fn_call_trace_result {
+        Ok((internal_fn_call_trace, new_used_source_files)) => {
+            if let Some(new_used_source_files) = new_used_source_files {
+                if let Some(class_hash) = call_trace_ref.entry_point.class_hash {
+                    used_source_files
+                        .entry(class_hash)
+                        .or_insert_with(std::collections::HashSet::new)
+                        .extend(new_used_source_files);
+                }
+            }
+            Some(internal_fn_call_trace)
+        }
+        Err(_) => None,
+    };
 
     SimulationCallTrace {
         entry_point: call_trace_ref.entry_point.clone(),
@@ -308,7 +344,7 @@ fn get_simulation_call_trace(
         nested_calls,
         nested_level,
         result: call_trace_ref.result.clone(),
-        internal_fn_call_trace: call_trace_ref.internal_fn_call_trace.clone(),
+        internal_fn_call_trace,
         additional_info: get_additional_info(
             fork_state_reader,
             call_trace_ref.entry_point.class_hash,
@@ -485,7 +521,7 @@ fn update_error_message(
             if let CallResult::Failure(failure) = &nested_trace.result {
                 match failure {
                     CallFailure::Panic { panic_data } => {
-                        dbg!(&panic_data);
+                        // dbg!(&panic_data);
                         match decode_felt252(panic_data.to_vec()) {
                             Ok(decoded) => {
                                 nested_trace.additional_info.error_message = Some(decoded.clone());
