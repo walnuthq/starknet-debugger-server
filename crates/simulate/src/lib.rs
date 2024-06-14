@@ -137,11 +137,15 @@ pub async fn simulate(args: SimulationArgs) -> SimulationInfo {
         cheatnet_state,
     );
 
-    if let Some(mut call_trace) = simulation_info.call_trace.take() {
+    if let (Some(mut call_trace), Some(mut event_trace)) = (
+        simulation_info.call_trace.take(),
+        simulation_info.events_trace.take(),
+    ) {
         ContractNamesFetcher::new(&chain_id)
-            .enhance_trace_with_contract_names(&mut call_trace)
+            .enhance_trace_with_contract_names(&mut call_trace, &mut event_trace)
             .await;
         simulation_info.call_trace = Some(call_trace);
+        simulation_info.events_trace = Some(event_trace);
     }
     simulation_info
 }
