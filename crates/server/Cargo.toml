@@ -39,3 +39,5 @@ cairo-lang-starknet-classes.workspace = true
 anyhow.workspace = true
 walnut-shared.workspace = true
 verification.workspace = true
+aws-sdk-s3.workspace = true
+aws-config.workspace = true

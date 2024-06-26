@@ -1,8 +1,11 @@
 use anyhow::Result;
-use axum::{extract, http::StatusCode, Json};
+use aws_sdk_s3::primitives::ByteStream;
+use aws_smithy_types::body::SdkBody;
 use cairo_lang_starknet_classes::contract_class::ContractClass;
+use internal_tracing::debugger_data_fetcher::SierraToCairoDebugInfo;
 use scarb_api::ScarbCommand;
-use serde::Deserialize;
+use serde::Serialize;
+use sqlx::{Pool, Postgres};
 use starknet::core::types::{BlockId, BlockTag, ContractClass as CoreContractClass, FieldElement};
 use starknet::providers::Provider;
 use starknet_api::core::ChainId;
@@ -12,40 +15,120 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::{collections::HashMap, fs::File};
 use uuid::Uuid;
-use walnut_shared::{create_rpc_client, extract_chain_id};
+use walnut_shared::create_rpc_client;
 
-#[derive(Deserialize, Debug)]
-pub struct VerificationPayload {
-    pub contract_name: String,
-    pub contract_address: String,
-    pub source_code: HashMap<String, String>,
+#[derive(Serialize)]
+struct VerifiedClassData {
+    contract_class: ContractClass,
+    cairo_debug_info: Option<SierraToCairoDebugInfo>,
+    source_code: HashMap<String, String>,
 }
 
-pub async fn verify_handler(
-    chain_id: extract::Path<String>,
-    Json(payload): Json<VerificationPayload>,
-) -> (StatusCode, String) {
-    let chain_id = extract_chain_id(chain_id.as_str());
-    match verify_wrapper(chain_id, payload).await {
-        Ok(_) => (StatusCode::OK, "Contract verified".to_string()),
-        Err(e) => (StatusCode::BAD_REQUEST, e.to_string()),
+async fn is_class_verified(db_pool: &Pool<Postgres>, class_hash: String) -> Result<bool> {
+    let result = sqlx::query!(
+        r#"SELECT EXISTS ( SELECT 1 from contract_classes WHERE hash = $1 ) "#,
+        class_hash
+    )
+    .fetch_one(db_pool)
+    .await?;
+
+    if let Some(e) = result.exists {
+        return Ok(e);
+    };
+
+    Ok(false)
+}
+
+fn field_element_to_padded_hex_string(field_element: FieldElement) -> String {
+    let mut hex_string = hex::encode(field_element.to_bytes_be());
+    while hex_string.len() < 64 {
+        hex_string.insert_str(0, "0");
     }
+    format!("0x{}", hex_string)
 }
 
-async fn verify_wrapper(chain_id: ChainId, payload: VerificationPayload) -> Result<()> {
+pub async fn verify_by_contract_address(
+    db_pool: &Pool<Postgres>,
+    s3_client: &aws_sdk_s3::Client,
+    chain_id: ChainId,
+    contract_address: String,
+    class_name: String,
+    source_code: HashMap<String, String>,
+) -> Result<()> {
+    let provider_client = create_rpc_client(&chain_id);
+    let class_hash = field_element_to_padded_hex_string(
+        provider_client
+            .get_class_hash_at(
+                BlockId::Tag(BlockTag::Latest),
+                &FieldElement::from_str(contract_address.as_str())?,
+            )
+            .await?,
+    );
+
+    let is_verified = is_class_verified(db_pool, class_hash.clone()).await?;
+    if is_verified {
+        return Err(anyhow::anyhow!("Class is already verified"));
+    }
+
     let random_string = Uuid::new_v4().to_string();
     let mut tmp_dir = PathBuf::from("tmp/verification");
     tmp_dir.push(&random_string);
 
-    let res = verify(chain_id, payload, &tmp_dir).await;
+    let res = verify(
+        &tmp_dir,
+        chain_id,
+        contract_address,
+        class_name,
+        &source_code,
+    )
+    .await;
 
     fs::remove_dir_all(&tmp_dir)?;
 
-    res
+    let (contract_class, cairo_debug_info) = res?;
+
+    let is_cairo_debug_info = cairo_debug_info.is_some();
+
+    let verified_class_data = VerifiedClassData {
+        contract_class,
+        cairo_debug_info,
+        source_code,
+    };
+
+    let json_data = serde_json::to_string(&verified_class_data)?;
+
+    s3_client
+        .put_object()
+        .bucket("walnutserver-east-1-classes-verification")
+        .key(format!("class-{}.json", class_hash))
+        .body(ByteStream::new(SdkBody::from(json_data)))
+        .send()
+        .await?;
+
+    let _rec = sqlx::query!(
+        r#"
+    INSERT INTO contract_classes ( hash, is_sierra_debug_info, is_cairo_debug_info, is_source_code )
+    VALUES ( $1, $2, $3, $4 )
+            "#,
+        class_hash,
+        true,
+        is_cairo_debug_info,
+        true
+    )
+    .execute(db_pool)
+    .await?;
+
+    Ok(())
 }
 
-async fn verify(chain_id: ChainId, payload: VerificationPayload, tmp_dir: &PathBuf) -> Result<()> {
-    create_files_from_map(payload.source_code, &tmp_dir)?;
+async fn verify(
+    tmp_dir: &PathBuf,
+    chain_id: ChainId,
+    contract_address: String,
+    class_name: String,
+    source_code: &HashMap<String, String>,
+) -> Result<(ContractClass, Option<SierraToCairoDebugInfo>)> {
+    create_files_from_map(source_code, &tmp_dir)?;
 
     let scarb_config_file = tmp_dir.join("Scarb.toml");
     let manifest = read_manifest(&scarb_config_file)?;
@@ -67,7 +150,7 @@ async fn verify(chain_id: ChainId, payload: VerificationPayload, tmp_dir: &PathB
 
     let contract_class_path = tmp_dir.join("target/dev").join(format!(
         "{}_{}.contract_class.json",
-        manifest.package_name, payload.contract_name
+        manifest.package_name, class_name
     ));
     let contract_class_file = File::open(contract_class_path)?;
     let contract_class_reader = BufReader::new(contract_class_file);
@@ -77,7 +160,7 @@ async fn verify(chain_id: ChainId, payload: VerificationPayload, tmp_dir: &PathB
     let class_from_blockchain = provider_client
         .get_class_at(
             BlockId::Tag(BlockTag::Latest),
-            &FieldElement::from_str(payload.contract_address.as_str())?,
+            &FieldElement::from_str(contract_address.as_str())?,
         )
         .await?;
     let program_from_blockchain = match class_from_blockchain {
@@ -103,7 +186,23 @@ async fn verify(chain_id: ChainId, payload: VerificationPayload, tmp_dir: &PathB
         }
     }
 
-    Ok(())
+    let cairo_debug_info: Result<Option<SierraToCairoDebugInfo>> = match manifest.starknet_version {
+        (2, 6, _) => {
+            let cairo_debug_info_path = tmp_dir.join("target/dev").join(format!(
+                "{}_{}.contract_class_debug.json",
+                manifest.package_name, class_name
+            ));
+            let cairo_debug_info_file = File::open(cairo_debug_info_path)?;
+            let cairo_debug_info_reader = BufReader::new(cairo_debug_info_file);
+            let cairo_debug_info: SierraToCairoDebugInfo =
+                serde_json::from_reader(cairo_debug_info_reader)?;
+            Ok(Some(cairo_debug_info))
+        }
+        _ => Ok(None),
+    };
+    let cairo_debug_info = cairo_debug_info?;
+
+    Ok((contract_class, cairo_debug_info))
 }
 
 struct Manifest {
@@ -150,7 +249,7 @@ fn read_manifest(path: &Path) -> Result<Manifest> {
 }
 
 pub fn create_files_from_map(
-    source_code: HashMap<String, String>,
+    source_code: &HashMap<String, String>,
     dir_path: &PathBuf,
 ) -> Result<()> {
     for (path, content) in source_code {
