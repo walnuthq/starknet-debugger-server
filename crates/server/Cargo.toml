@@ -23,7 +23,7 @@ tracing-subscriber.workspace = true
 starknet.workspace = true
 starknet_api.workspace = true
 blockifier.workspace = true
-simulate = { path = "../simulate" }
+simulate.workspace = true
 db = { path = "../db" }
 axum-prometheus = "0.4.0"
 cookie.workspace = true

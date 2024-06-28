@@ -1,10 +1,12 @@
+pub mod cairo_debug_info;
+
 use anyhow::Result;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_smithy_types::body::SdkBody;
+use cairo_debug_info::SierraToCairoDebugInfo;
 use cairo_lang_starknet_classes::contract_class::ContractClass;
-use internal_tracing::debugger_data_fetcher::SierraToCairoDebugInfo;
 use scarb_api::ScarbCommand;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use starknet::core::types::{BlockId, BlockTag, ContractClass as CoreContractClass, FieldElement};
 use starknet::providers::Provider;
@@ -17,11 +19,40 @@ use std::{collections::HashMap, fs::File};
 use uuid::Uuid;
 use walnut_shared::create_rpc_client;
 
-#[derive(Serialize)]
-struct VerifiedClassData {
-    contract_class: ContractClass,
-    cairo_debug_info: Option<SierraToCairoDebugInfo>,
-    source_code: HashMap<String, String>,
+#[derive(Debug)]
+pub struct VerifiedClassRow {
+    pub hash: String,
+    pub is_sierra_debug_info: bool,
+    pub is_cairo_debug_info: bool,
+    pub is_source_code: bool,
+}
+
+pub fn key_for_class_hash(class_hash: String) -> String {
+    format!("class-{}.json", class_hash)
+}
+
+pub async fn fetch_verified_classes(
+    db_pool: &Pool<Postgres>,
+    class_hashes: Vec<String>,
+) -> Result<Vec<VerifiedClassRow>> {
+    let verified_classes = sqlx::query_as!(
+        VerifiedClassRow,
+        r#"SELECT *
+        FROM contract_classes
+        WHERE hash = ANY($1)"#,
+        &class_hashes
+    )
+    .fetch_all(db_pool)
+    .await?;
+
+    Ok(verified_classes)
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct VerifiedClassData {
+    pub contract_class: ContractClass,
+    pub cairo_debug_info: Option<SierraToCairoDebugInfo>,
+    pub source_code: HashMap<String, String>,
 }
 
 async fn is_class_verified(db_pool: &Pool<Postgres>, class_hash: String) -> Result<bool> {

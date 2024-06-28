@@ -15,7 +15,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [workspace.dependencies]
-axum = "0.6.20"
+axum = { version = "0.6.20", features = ["macros"] }
 redis = { version = "0.23.3", features = ["tokio-comp"] }
 sqlx = { version = "0.7.2", features = [
   "runtime-tokio",
@@ -79,6 +79,7 @@ internal-tracing = { path = "./crates/internal-tracing" }
 walnut-shared = { path = "./crates/walnut-shared" }
 verification = { path = "./crates/verification" }
 calldata-decoder = { path = "./crates/calldata-decoder" }
+simulate = { path = "./crates/simulate" }
 # cairo-lang-casm = "2.6.3"
 cairo-lang-casm = { git = "https://github.com/walnuthq/cairo", rev = "e27ee4aa794331cabee4a22768fe99d837b489df", features = [
   "serde",
