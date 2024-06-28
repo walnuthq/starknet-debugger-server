@@ -29,7 +29,7 @@ pub struct VerificationPayload {
         content_type = "application/json"
     ),
     responses(
-        (status = 200, description = "Contract verified", body = String),
+        (status = 200, description = "Contract successfully verified", body = String),
         (status = 400, description = "An error occurred during verification; an error message will be returned", body = String)
     ),
     params(

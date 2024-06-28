@@ -14,14 +14,9 @@ enum ChainId {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(
-        verify_handler,
-    ),
-    components(schemas(
-        VerificationPayload, ChainId
-    )),
-    tags(
-        (name = "Walnut API", description = ""),
-    )
+    paths(verify_handler,),
+    components(schemas(VerificationPayload, ChainId)),
+    tags((name = "Contract class verification", description = "We currently support the following cairo version & scarb version: 2.6.*")),
+    info(title = "Walnut API", version = "1.0.0")
 )]
 pub struct ApiDoc;
