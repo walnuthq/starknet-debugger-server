@@ -1,6 +1,11 @@
 use anyhow::{Error, Result};
 use byteorder::{ByteOrder, LittleEndian};
 use cairo_felt::{Felt252, PRIME_STR};
+use cairo_lang_casm::{
+    cell_expression::CellExpression,
+    hints::{Hint, StarknetHint},
+    instructions::Instruction as CasmInstruction,
+};
 use cairo_lang_sierra::{extensions::gas::CostTokenType, program::Program};
 use cairo_lang_sierra_to_casm::{
     compiler::{CairoProgram, CairoProgramDebugInfo, SierraToCasmConfig},
@@ -17,6 +22,7 @@ use cairo_vm::{
 use itertools::chain;
 use num_bigint::BigUint;
 use serde::Serialize;
+use starknet_api::hash::StarkFelt;
 use std::collections::HashMap;
 
 pub fn compile_sierra_contract_class(
@@ -121,6 +127,34 @@ pub fn get_pc_mappings(
     (pc_inst_map, pc_to_inst_indexes_map)
 }
 
+pub fn get_pc_to_sys_call_mappings(
+    casm_instructions: &Vec<CasmInstruction>,
+    pc_to_inst_indexes_map: &HashMap<usize, usize>,
+) -> HashMap<usize, CellExpression> {
+    pc_to_inst_indexes_map
+        .iter()
+        .filter_map(|(pc, casm_index)| {
+            if *casm_index >= casm_instructions.len() {
+                return None;
+            }
+            let instruction = casm_instructions[*casm_index].clone();
+            if let Some(system) = instruction.hints.iter().find_map(|hint| match hint {
+                Hint::Starknet(starknet_hint) => match starknet_hint {
+                    StarknetHint::SystemCall { system } => {
+                        Some(CellExpression::from_res_operand(system.clone()))
+                    }
+                    _ => None,
+                },
+                _ => None,
+            }) {
+                Some((*pc, system))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 // Returns the encoded instruction (the value at pc) and the immediate value (the value at
 // pc + 1, if it exists in the memory).
 pub fn get_instruction_encoding(
@@ -171,4 +205,9 @@ pub fn format_sierra_program(sierra_program: Program) -> SierraFormattedProgram 
             .map(|func| func.to_string())
             .collect(),
     }
+}
+
+pub fn felt_to_stark_felt(felt: &Felt252) -> StarkFelt {
+    let biguint = format!("{:#x}", felt.to_biguint());
+    StarkFelt::try_from(biguint.as_str()).expect("Felt252 must be in StarkFelt's range.")
 }

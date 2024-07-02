@@ -44,6 +44,10 @@ pub fn get_internal_call_trace(
 
     for (i, trace_entry) in vm_trace.iter().enumerate() {
         let new_fp = trace_entry.fp;
+
+        let _syscall_selector =
+            mappings.get_system_call_selector_at_trace_step(relocated_memory, trace_entry);
+
         if new_fp > current_fp {
             // new function call
             let sierra_indexes = mappings.get_sierra_indexes_at_pc(&trace_entry.pc);

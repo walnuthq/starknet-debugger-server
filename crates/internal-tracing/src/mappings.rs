@@ -1,6 +1,7 @@
 use anyhow::Result;
+use blockifier::execution::syscalls::SyscallSelector;
 use byteorder::{ByteOrder, LittleEndian};
-use cairo_felt::Felt252;
+use cairo_felt::{felt_str, Felt252};
 use cairo_lang_casm::{
     ap_change::ApChange,
     cell_expression::{CellExpression, CellOperator},
@@ -18,16 +19,21 @@ use cairo_lang_starknet_classes::contract_class::ContractClass;
 use cairo_vm::vm::trace::trace_entry::TraceEntry;
 use num_bigint::BigInt;
 use smol_str::SmolStr;
+use starknet_api::hash::StarkFelt;
 use std::collections::{HashMap, HashSet};
 use verification::cairo_debug_info::{CodeLocation, SierraStatementToCairoDebugInfo};
 
 use crate::{
     call_trace::InternalFnCallIO,
-    utils::{compile_sierra_contract_class, get_pc_mappings, make_casm_to_sierra_map},
+    utils::{
+        compile_sierra_contract_class, felt_to_stark_felt, get_pc_mappings,
+        get_pc_to_sys_call_mappings, make_casm_to_sierra_map,
+    },
 };
 
 pub struct Mappings {
     pub pc_to_inst_indexes_map: HashMap<usize, usize>,
+    pub pc_to_sys_calls: HashMap<usize, CellExpression>,
     pub casm_to_sierra_map: HashMap<usize, Vec<usize>>,
     pub sierra_program: Program,
     pub memory_map: HashMap<usize, BigInt>,
@@ -51,6 +57,9 @@ impl Mappings {
         let casm_program = compile_sierra_contract_class(contract_class, usize::MAX);
         let casm_to_sierra_map = make_casm_to_sierra_map(&casm_program.debug_info, 0);
         let (_pc_inst_map, pc_to_inst_indexes_map) = get_pc_mappings(relocated_memory, vm_trace);
+
+        let pc_to_sys_calls =
+            get_pc_to_sys_call_mappings(&casm_program.instructions, &pc_to_inst_indexes_map);
 
         let memory_map: HashMap<usize, BigInt> = relocated_memory
             .iter()
@@ -79,6 +88,7 @@ impl Mappings {
 
         Ok(Mappings {
             pc_to_inst_indexes_map,
+            pc_to_sys_calls,
             casm_to_sierra_map,
             sierra_program,
             memory_map,
@@ -241,6 +251,49 @@ impl Mappings {
             }
         }
         results
+    }
+
+    pub fn get_system_call_selector_at_trace_step(
+        &self,
+        relocated_memory: &Vec<Option<Felt252>>,
+        trace_entry: &TraceEntry,
+    ) -> Option<String> {
+        let pc = trace_entry.pc as usize;
+        let sys_call = self.pc_to_sys_calls.get(&pc);
+        match sys_call {
+            Some(sys_call) => {
+                let value = get_value_from_cell_expression(
+                    relocated_memory,
+                    trace_entry,
+                    sys_call,
+                    &ApChange::Known(0),
+                )
+                .unwrap();
+
+                let felt_value = felt_str!(value);
+                dbg!(&felt_value);
+                let starkfelt = felt_to_stark_felt(&felt_value);
+                dbg!(starkfelt);
+                //TODO: https://github.com/walnuthq/blockifier/blob/a6200402ab635d8a8e175f7f135be5914c960007/crates/blockifier/src/execution/deprecated_syscalls/mod.rs#L75
+                //The 'try_from' failed
+                //The entry point to use this decode process is from here - https://github.com/walnuthq/blockifier/blob/a6200402ab635d8a8e175f7f135be5914c960007/crates/blockifier/src/execution/syscalls/hint_processor.rs#L288
+                //Overall I think we got the correct value from the memory, but we are not
+                //able to decode it to starkfelt
+                let selector = SyscallSelector::try_from(starkfelt);
+                match selector {
+                    Ok(selector) => {
+                        dbg!(&selector);
+                        Some(format!("{:?}", selector))
+                    }
+                    Err(e) => {
+                        dbg!(e);
+                        None
+                    }
+                }
+            }
+
+            None => None,
+        }
     }
 }
 
