@@ -1,4 +1,4 @@
-use crate::mappings::Mappings;
+use crate::{mappings::Mappings, utils::is_panic_result};
 use anyhow::Result;
 use cairo_felt::Felt252;
 use cairo_vm::vm::trace::trace_entry::TraceEntry;
@@ -50,6 +50,7 @@ pub fn get_internal_call_trace(
         cairo_locations: entrypoint_cairo_locations,
         arguments: Vec::new(),
         results: Vec::new(),
+        is_panic_result: false,
     });
 
     let mut debugger_execution_trace: Vec<DebuggerExecutionTraceEntry> = Vec::new();
@@ -96,6 +97,7 @@ pub fn get_internal_call_trace(
                 cairo_locations,
                 arguments: arguments.clone(),
                 results: Vec::new(),
+                is_panic_result: false,
             };
 
             tree.add_child(call_entry);
@@ -127,6 +129,12 @@ pub fn get_internal_call_trace(
                 ),
                 None => Vec::new(),
             };
+
+            results.iter().for_each(|result| {
+                if is_panic_result(&result.type_name) && result.value[0] == "1" {
+                    tree.set_panic_result_to_current_node();
+                }
+            });
 
             tree.set_results_to_current_node(results.clone());
             tree.move_to_parent();
@@ -175,6 +183,7 @@ pub struct InternalFnCallTraceEntry {
     pub results: Vec<InternalFnCallIO>,
     pub arguments: Vec<InternalFnCallIO>,
     pub cairo_locations: Vec<CodeLocation>,
+    pub is_panic_result: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -225,6 +234,13 @@ impl InternalFnCallTraceTree {
         if let Some(node) = self.arena.get_mut(self.current_node) {
             let data = node.get_mut();
             data.results = results;
+        }
+    }
+
+    fn set_panic_result_to_current_node(&mut self) {
+        if let Some(node) = self.arena.get_mut(self.current_node) {
+            let data = node.get_mut();
+            data.is_panic_result = true;
         }
     }
 
