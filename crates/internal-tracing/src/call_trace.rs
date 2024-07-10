@@ -130,12 +130,6 @@ pub fn get_internal_call_trace(
                 None => Vec::new(),
             };
 
-            results.iter().for_each(|result| {
-                if is_panic_result(&result.type_name) && result.value[0] == "1" {
-                    tree.set_panic_result_to_current_node();
-                }
-            });
-
             tree.set_results_to_current_node(results.clone());
             tree.move_to_parent();
             current_fp = trace_entry.fp;
@@ -172,6 +166,8 @@ pub fn get_internal_call_trace(
             }
         }
     }
+
+    tree.set_deepest_panic_result();
 
     Ok((tree.get_root_serializable(), debugger_execution_trace))
 }
@@ -216,6 +212,56 @@ impl InternalFnCallTraceTree {
         }
     }
 
+    fn find_max_panic_depth(&mut self, node_id: NodeId, depth: usize, max_depth: &mut usize) {
+        if let Some(node) = self.arena.get(node_id) {
+            let data = &node.get();
+
+            for result in data.results.iter() {
+                if is_panic_result(&result.type_name)
+                    && result.value[0] == "1"
+                    && depth > *max_depth
+                {
+                    *max_depth = depth;
+                }
+            }
+
+            let mut child_id = node.first_child();
+            while let Some(id) = child_id {
+                self.find_max_panic_depth(id, depth + 1, max_depth);
+                child_id = self.arena.get(id).and_then(|n| n.next_sibling());
+            }
+        }
+    }
+
+    fn mark_deepest_panic_node(&mut self, node_id: NodeId, depth: usize, max_depth: usize) {
+        if let Some(node) = self.arena.get_mut(node_id) {
+            let data = &mut node.get_mut();
+
+            data.is_panic_result = false;
+
+            for result in data.results.iter() {
+                if depth == max_depth
+                    && is_panic_result(&result.type_name)
+                    && result.value[0] == "1"
+                {
+                    data.is_panic_result = true;
+                }
+            }
+
+            let mut child_id = node.first_child();
+            while let Some(id) = child_id {
+                self.mark_deepest_panic_node(id, depth + 1, max_depth);
+                child_id = self.arena.get(id).and_then(|n| n.next_sibling());
+            }
+        }
+    }
+
+    fn set_deepest_panic_result(&mut self) {
+        let mut max_depth = 0;
+        self.find_max_panic_depth(self.root, 0, &mut max_depth);
+        self.mark_deepest_panic_node(self.root, 0, max_depth);
+    }
+
     fn add_child(&mut self, entry: InternalFnCallTraceEntry) {
         let child = self.arena.new_node(entry);
         self.current_node.append(child, &mut self.arena);
@@ -234,13 +280,6 @@ impl InternalFnCallTraceTree {
         if let Some(node) = self.arena.get_mut(self.current_node) {
             let data = node.get_mut();
             data.results = results;
-        }
-    }
-
-    fn set_panic_result_to_current_node(&mut self) {
-        if let Some(node) = self.arena.get_mut(self.current_node) {
-            let data = node.get_mut();
-            data.is_panic_result = true;
         }
     }
 
