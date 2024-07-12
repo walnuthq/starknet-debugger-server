@@ -202,3 +202,9 @@ pub fn felt_to_stark_felt(felt: &Felt252) -> StarkFelt {
     let biguint = format!("{:#x}", felt.to_biguint());
     StarkFelt::try_from(biguint.as_str()).expect("Felt252 must be in StarkFelt's range.")
 }
+
+pub fn is_panic_result(return_type: &Option<String>) -> bool {
+    return_type
+        .as_ref()
+        .is_some_and(|result_type| result_type.starts_with("core::panics::PanicResult"))
+}
