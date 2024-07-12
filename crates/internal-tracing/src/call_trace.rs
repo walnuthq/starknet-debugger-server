@@ -1,7 +1,7 @@
 use crate::mappings::Mappings;
 use anyhow::Result;
 use cairo_felt::Felt252;
-use cairo_vm::vm::trace::trace_entry::TraceEntry;
+use cairo_vm::vm::trace::trace_entry::{self, TraceEntry};
 use indextree::{Arena, NodeId};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -63,12 +63,12 @@ pub fn get_internal_call_trace(
     let mut results_accumulator: Vec<InternalFnCallIO> = Vec::new();
     // Sierra indexes of the previous step with Cairo locations
     let mut prev_cairo_location_sierra_indexes: Vec<usize> = Vec::new();
+    let mut system_calls: Vec<String> = Vec::new();
+    let mut fp_system_calls: HashMap<usize, Vec<String>> = HashMap::new();
 
     for (i, trace_entry) in vm_trace.iter().enumerate() {
         let new_fp = trace_entry.fp;
 
-        let _syscall_selector =
-            mappings.get_system_call_selector_at_trace_step(relocated_memory, trace_entry);
         // Active Sierra indexes at the current step
         let sierra_indexes = mappings.get_sierra_indexes_at_pc(&trace_entry.pc);
         let first_sierra_index = sierra_indexes.as_ref().and_then(|indexes| indexes.first());
@@ -206,8 +206,20 @@ pub fn get_internal_call_trace(
                 prev_cairo_locations = cairo_locations;
             }
         }
+        let syscall_selector =
+            mappings.get_system_call_selector_at_trace_step(relocated_memory, trace_entry);
+        if let Some(syscall) = syscall_selector {
+            system_calls.push(syscall.clone());
+            // Update fp_system_calls with the current fp and system call
+            fp_system_calls
+                .entry(trace_entry.fp)
+                .or_insert_with(Vec::new)
+                .push(syscall.clone());
+        }
     }
 
+    dbg!(&fp_system_calls);
+    //tree.set_system_calls(tree.root, &fp_system_calls);
     // Add debugger trace entry for the last step with Cairo locations
     debugger_execution_trace.push(DebuggerExecutionTraceEntry {
         sierra_indexes: prev_cairo_location_sierra_indexes,

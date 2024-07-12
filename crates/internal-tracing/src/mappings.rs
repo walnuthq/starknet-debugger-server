@@ -19,7 +19,6 @@ use cairo_lang_starknet_classes::contract_class::ContractClass;
 use cairo_vm::vm::trace::trace_entry::TraceEntry;
 use num_bigint::BigInt;
 use smol_str::SmolStr;
-use starknet_api::hash::StarkFelt;
 use std::collections::{HashMap, HashSet};
 use verification::cairo_debug_info::{CodeLocation, SierraStatementToCairoDebugInfo};
 
@@ -49,7 +48,8 @@ impl Mappings {
         contract_class: ContractClass,
     ) -> Result<Self> {
         let sierra_program = contract_class.extract_sierra_program()?;
-        // dbg!(format_sierra_program(sierra_program.clone()));
+        //dbg!(&sierra_program.libfunc_declarations);
+        //dbg!(format_sierra_program(sierra_program.clone()));
         let type_names = contract_class
             .sierra_program_debug_info
             .clone()
@@ -61,7 +61,6 @@ impl Mappings {
 
         let pc_to_sys_calls =
             get_pc_to_sys_call_mappings(&casm_program.instructions, &pc_to_inst_indexes_map);
-
         let memory_map: HashMap<usize, BigInt> = relocated_memory
             .iter()
             .filter_map(|x| x.as_ref().map(|_| x.clone().unwrap()))
@@ -74,7 +73,6 @@ impl Mappings {
             ProgramRegistry::<CoreType, CoreLibfunc>::new(&sierra_program).unwrap();
         let type_sizes =
             get_type_size_map(&sierra_program, &sierra_program_registry).unwrap_or_default();
-
         // // Print relocated memory
         // let mut ordered_map: BTreeMap<usize, BigInt> = BTreeMap::new();
         // for (k, v) in &memory_map {
@@ -270,11 +268,10 @@ impl Mappings {
                     &ApChange::Known(0),
                 )
                 .unwrap();
-
-                let felt_value = felt_str!(value);
-                dbg!(&felt_value);
-                let starkfelt = felt_to_stark_felt(&felt_value);
-                dbg!(starkfelt);
+                let felt_value = relocated_memory
+                    .get(value.parse::<usize>().unwrap())
+                    .unwrap();
+                let starkfelt = felt_to_stark_felt(&felt_value.as_ref().unwrap());
                 //TODO: https://github.com/walnuthq/blockifier/blob/a6200402ab635d8a8e175f7f135be5914c960007/crates/blockifier/src/execution/deprecated_syscalls/mod.rs#L75
                 //The 'try_from' failed
                 //The entry point to use this decode process is from here - https://github.com/walnuthq/blockifier/blob/a6200402ab635d8a8e175f7f135be5914c960007/crates/blockifier/src/execution/syscalls/hint_processor.rs#L288
@@ -282,10 +279,7 @@ impl Mappings {
                 //able to decode it to starkfelt
                 let selector = SyscallSelector::try_from(starkfelt);
                 match selector {
-                    Ok(selector) => {
-                        dbg!(&selector);
-                        Some(format!("{:?}", selector))
-                    }
+                    Ok(selector) => Some(format!("{:?}", selector)),
                     Err(e) => {
                         dbg!(e);
                         None
