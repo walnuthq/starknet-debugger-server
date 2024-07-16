@@ -1,5 +1,7 @@
 use anyhow::Result;
-use blockifier::execution::syscalls::SyscallSelector;
+use blockifier::execution::{
+    deprecated_syscalls::DeprecatedSyscallSelector, syscalls::SyscallSelector,
+};
 use byteorder::{ByteOrder, LittleEndian};
 use cairo_felt::{felt_str, Felt252};
 use cairo_lang_casm::{
@@ -284,9 +286,9 @@ impl Mappings {
                     &ApChange::Known(0),
                 )
                 .unwrap();
-                let felt_value = relocated_memory
-                    .get(value.parse::<usize>().unwrap())
-                    .unwrap();
+                let mut ptr = value.parse::<usize>().unwrap();
+                let felt_value = relocated_memory.get(ptr).unwrap();
+                ptr += 1;
                 let starkfelt = felt_to_stark_felt(&felt_value.as_ref().unwrap());
                 //TODO: https://github.com/walnuthq/blockifier/blob/a6200402ab635d8a8e175f7f135be5914c960007/crates/blockifier/src/execution/deprecated_syscalls/mod.rs#L75
                 //The 'try_from' failed
@@ -295,7 +297,25 @@ impl Mappings {
                 //able to decode it to starkfelt
                 let selector = SyscallSelector::try_from(starkfelt);
                 match selector {
-                    Ok(selector) => Some(format!("{:?}", selector)),
+                    Ok(selector) => {
+                        match selector {
+                            DeprecatedSyscallSelector::CallContract => {
+                                // https://github.com/starkware-libs/blockifier/blob/9bfb3d4c8bf1b68a0c744d1249b32747c75a4d87/crates/blockifier/src/execution/syscalls/hint_processor.rs#L302C13-L306C15
+                                let felt_value = relocated_memory.get(ptr).unwrap();
+                                dbg!(&felt_value); // gas_counter
+                                ptr += 1;
+                                let felt_value = relocated_memory.get(ptr).unwrap();
+                                dbg!(&felt_value); // contract address
+                                ptr += 1;
+                                let felt_value = relocated_memory.get(ptr).unwrap();
+                                dbg!(&felt_value); // function selector
+
+                                // Then we can get calldata if needed
+                            }
+                            _ => {}
+                        }
+                        Some(format!("{:?}", selector))
+                    }
                     Err(e) => {
                         dbg!(e);
                         None
