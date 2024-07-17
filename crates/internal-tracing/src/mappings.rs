@@ -26,7 +26,7 @@ use verification::cairo_debug_info::{CodeLocation, SierraStatementToCairoDebugIn
 use walnut_shared::decode_felt252;
 
 use crate::{
-    call_trace::InternalFnCallIO,
+    call_trace::{ContractCall, InternalFnCallIO},
     utils::{
         compile_sierra_contract_class, felt_to_stark_felt, get_pc_mappings,
         get_pc_to_sys_call_mappings, is_panic_result, make_casm_to_sierra_map,
@@ -274,9 +274,10 @@ impl Mappings {
         &self,
         relocated_memory: &Vec<Option<Felt252>>,
         trace_entry: &TraceEntry,
-    ) -> Option<String> {
+    ) -> Option<ContractCall> {
         let pc = trace_entry.pc as usize;
         let sys_call = self.pc_to_sys_calls.get(&pc);
+        let mut contract_call = None;
         match sys_call {
             Some(sys_call) => {
                 let value = get_value_from_cell_expression(
@@ -302,28 +303,35 @@ impl Mappings {
                             DeprecatedSyscallSelector::CallContract => {
                                 // https://github.com/starkware-libs/blockifier/blob/9bfb3d4c8bf1b68a0c744d1249b32747c75a4d87/crates/blockifier/src/execution/syscalls/hint_processor.rs#L302C13-L306C15
                                 let felt_value = relocated_memory.get(ptr).unwrap();
-                                dbg!(&felt_value); // gas_counter
                                 ptr += 1;
-                                let felt_value = relocated_memory.get(ptr).unwrap();
-                                dbg!(&felt_value); // contract address
+                                let felt_value: Felt252 =
+                                    relocated_memory.get(ptr).unwrap().clone().unwrap();
+                                let contract_address =
+                                    format!("0x{:0>64}", felt_value.to_str_radix(16));
                                 ptr += 1;
-                                let felt_value = relocated_memory.get(ptr).unwrap();
-                                dbg!(&felt_value); // function selector
-
+                                let felt_value =
+                                    relocated_memory.get(ptr).unwrap().clone().unwrap();
+                                let function_selector =
+                                    format!("0x{:0>64}", felt_value.to_str_radix(16));
+                                contract_call = Some(ContractCall {
+                                    contract_address,
+                                    function_selector,
+                                });
                                 // Then we can get calldata if needed
                             }
                             _ => {}
                         }
-                        Some(format!("{:?}", selector))
+                        contract_call
+                        //Some(format!("{:?}", selector))
                     }
                     Err(e) => {
                         dbg!(e);
-                        None
+                        contract_call
                     }
                 }
             }
 
-            None => None,
+            None => contract_call,
         }
     }
 }

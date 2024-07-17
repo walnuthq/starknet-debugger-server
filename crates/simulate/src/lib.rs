@@ -278,6 +278,7 @@ pub struct EventAbi {
 pub struct SimulationCallTraceAdditionalInfo {
     contract_name: Option<String>,
     entry_point_function_name: Option<String>,
+    entry_point_function_selector: Option<String>,
     entry_point_interface_name: Option<String>,
     is_erc20_token: bool,
     erc20_token_name: Option<String>,
@@ -650,6 +651,7 @@ fn get_additional_info(
     let mut additional_info = SimulationCallTraceAdditionalInfo {
         contract_name: None,
         entry_point_function_name: None,
+        entry_point_function_selector: None,
         entry_point_interface_name: None,
         is_erc20_token: false,
         erc20_token_name: None,
@@ -736,6 +738,7 @@ fn get_function_name(
     additional_info: &mut SimulationCallTraceAdditionalInfo,
     entry_point_selector: &EntryPointSelector,
 ) {
+    additional_info.entry_point_function_selector = Some(entry_point_selector.0.to_string());
     if additional_info.entry_point_function_name.is_none() {
         let entry_point_selector_str = entry_point_selector.0.to_string();
         let selector = get_selector(&entry_point_selector_str);

@@ -7,11 +7,18 @@ use serde::Serialize;
 use std::collections::HashMap;
 use verification::cairo_debug_info::{CodeLocation, SierraStatementToCairoDebugInfo};
 
+#[derive(Debug, Serialize, Clone)]
+pub struct ContractCall {
+    pub contract_address: String,
+    pub function_selector: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct DebuggerExecutionTraceEntry {
     pub sierra_indexes: Vec<usize>,
     pub results: Vec<InternalFnCallIO>,
     pub arguments: Vec<InternalFnCallIO>,
+    pub contract_calls: Vec<ContractCall>,
 }
 
 pub fn get_internal_call_trace(
@@ -51,6 +58,7 @@ pub fn get_internal_call_trace(
         cairo_locations: entrypoint_cairo_locations,
         arguments: Vec::new(),
         results: Vec::new(),
+        contract_calls: Vec::new(),
         is_panic_result: false,
     });
 
@@ -64,8 +72,8 @@ pub fn get_internal_call_trace(
     let mut results_accumulator: Vec<InternalFnCallIO> = Vec::new();
     // Sierra indexes of the previous step with Cairo locations
     let mut prev_cairo_location_sierra_indexes: Vec<usize> = Vec::new();
-    let mut system_calls: Vec<String> = Vec::new();
-    let mut fp_system_calls: HashMap<usize, Vec<String>> = HashMap::new();
+    let mut system_contract_calls: Vec<ContractCall> = Vec::new();
+    let mut fp_system_calls: HashMap<usize, Vec<ContractCall>> = HashMap::new();
 
     for (i, trace_entry) in vm_trace.iter().enumerate() {
         let new_fp = trace_entry.fp;
@@ -115,6 +123,7 @@ pub fn get_internal_call_trace(
                 cairo_locations: cairo_locations.clone(),
                 arguments: arguments.clone(),
                 results: Vec::new(),
+                contract_calls: Vec::new(),
                 is_panic_result: false,
             };
 
@@ -199,6 +208,7 @@ pub fn get_internal_call_trace(
                         sierra_indexes: prev_cairo_location_sierra_indexes.clone(),
                         results: results_accumulator.clone(),
                         arguments: arguments_accumulator.clone(),
+                        contract_calls: vec![],
                     });
                     // And accumulate arguments and results
                     results_accumulator = results;
@@ -208,10 +218,10 @@ pub fn get_internal_call_trace(
                 prev_cairo_locations = cairo_locations;
             }
         }
-        let syscall_selector =
+        let contract_call =
             mappings.get_system_call_selector_at_trace_step(relocated_memory, trace_entry);
-        if let Some(syscall) = syscall_selector {
-            system_calls.push(syscall.clone());
+        if let Some(syscall) = contract_call {
+            system_contract_calls.push(syscall.clone());
             // Update fp_system_calls with the current fp and system call
             fp_system_calls
                 .entry(trace_entry.fp)
@@ -219,15 +229,14 @@ pub fn get_internal_call_trace(
                 .push(syscall.clone());
         }
     }
-
-    dbg!(&fp_system_calls);
-    //tree.set_system_calls(tree.root, &fp_system_calls);
+    tree.set_system_contract_calls(tree.root, &fp_system_calls);
     tree.set_deepest_panic_result();
     // Add debugger trace entry for the last step with Cairo locations
     debugger_execution_trace.push(DebuggerExecutionTraceEntry {
         sierra_indexes: prev_cairo_location_sierra_indexes,
         results: results_accumulator,
         arguments: arguments_accumulator,
+        contract_calls: system_contract_calls,
     });
 
     Ok((tree.get_root_serializable(), debugger_execution_trace))
@@ -239,6 +248,7 @@ pub struct InternalFnCallTraceEntry {
     pub fp: usize,
     pub results: Vec<InternalFnCallIO>,
     pub arguments: Vec<InternalFnCallIO>,
+    pub contract_calls: Vec<ContractCall>,
     pub cairo_locations: Vec<CodeLocation>,
     pub is_panic_result: bool,
 }
@@ -321,6 +331,26 @@ impl InternalFnCallTraceTree {
         let mut max_depth = 0;
         self.find_max_panic_depth(self.root, 0, &mut max_depth);
         self.mark_deepest_panic_node(self.root, 0, max_depth);
+    }
+
+    fn set_system_contract_calls(
+        &mut self,
+        node_id: NodeId,
+        system_calls: &HashMap<usize, Vec<ContractCall>>,
+    ) {
+        if let Some(node) = self.arena.get_mut(node_id) {
+            let data = &mut node.get_mut();
+            let fp = data.fp;
+            if system_calls.contains_key(&fp) {
+                data.contract_calls = system_calls.get(&fp).unwrap().clone();
+            }
+
+            let mut child_id = node.first_child();
+            while let Some(id) = child_id {
+                self.set_system_contract_calls(id, system_calls);
+                child_id = self.arena.get(id).and_then(|n| n.next_sibling());
+            }
+        }
     }
 
     fn add_child(&mut self, entry: InternalFnCallTraceEntry) {
