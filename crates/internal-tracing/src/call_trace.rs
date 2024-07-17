@@ -73,7 +73,7 @@ pub fn get_internal_call_trace(
     // Sierra indexes of the previous step with Cairo location
     let mut prev_cairo_location_sierra_index: Option<usize> = None;
     let mut system_contract_calls: Vec<ContractCall> = Vec::new();
-    let mut fp_system_calls: HashMap<usize, Vec<ContractCall>> = HashMap::new();
+    let mut fp_system_contract_calls: HashMap<usize, Vec<ContractCall>> = HashMap::new();
 
     for (i, trace_entry) in vm_trace.iter().enumerate() {
         let new_fp = trace_entry.fp;
@@ -231,16 +231,16 @@ pub fn get_internal_call_trace(
         }
         let contract_call =
             mappings.get_system_call_selector_at_trace_step(relocated_memory, trace_entry);
-        if let Some(syscall) = contract_call {
-            system_contract_calls.push(syscall.clone());
+        if let Some(contract) = contract_call {
+            system_contract_calls.push(contract.clone());
             // Update fp_system_calls with the current fp and system call
-            fp_system_calls
+            fp_system_contract_calls
                 .entry(trace_entry.fp)
                 .or_insert_with(Vec::new)
-                .push(syscall.clone());
+                .push(contract.clone());
         }
     }
-    tree.set_system_contract_calls(tree.root, &fp_system_calls);
+    tree.set_system_contract_calls(tree.root, &fp_system_contract_calls);
     tree.set_deepest_panic_result();
     // Add debugger trace entry for the last step with Cairo locations
     debugger_execution_trace.push(DebuggerExecutionTraceEntry {
@@ -348,18 +348,18 @@ impl InternalFnCallTraceTree {
     fn set_system_contract_calls(
         &mut self,
         node_id: NodeId,
-        system_calls: &HashMap<usize, Vec<ContractCall>>,
+        system_contract_calls: &HashMap<usize, Vec<ContractCall>>,
     ) {
         if let Some(node) = self.arena.get_mut(node_id) {
             let data = &mut node.get_mut();
             let fp = data.fp;
-            if system_calls.contains_key(&fp) {
-                data.contract_calls = system_calls.get(&fp).unwrap().clone();
+            if system_contract_calls.contains_key(&fp) {
+                data.contract_calls = system_contract_calls.get(&fp).unwrap().clone();
             }
 
             let mut child_id = node.first_child();
             while let Some(id) = child_id {
-                self.set_system_contract_calls(id, system_calls);
+                self.set_system_contract_calls(id, system_contract_calls);
                 child_id = self.arena.get(id).and_then(|n| n.next_sibling());
             }
         }
