@@ -5,6 +5,7 @@ use cairo_vm::vm::trace::trace_entry::TraceEntry;
 use indextree::{Arena, NodeId};
 use serde::Serialize;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use verification::cairo_debug_info::{CodeLocation, SierraStatementToCairoDebugInfo};
 
 #[derive(Debug, Serialize, Clone)]
@@ -60,6 +61,7 @@ pub fn get_internal_call_trace(
         contract_calls: Vec::new(),
         is_panic_result: false,
         debugger_execution_trace_step_index: 0,
+        internal_function_call_id: String::new(),
     });
 
     // Execution trace of the current contract call that contains data for the debugger
@@ -126,6 +128,7 @@ pub fn get_internal_call_trace(
                 contract_calls: Vec::new(),
                 is_panic_result: false,
                 debugger_execution_trace_step_index: debugger_execution_trace.len(),
+                internal_function_call_id: String::new(),
             };
 
             // Add the nested call and set it as the current node
@@ -242,6 +245,7 @@ pub fn get_internal_call_trace(
     }
     tree.set_system_contract_calls(tree.root, &fp_system_contract_calls);
     tree.set_deepest_panic_result();
+    tree.set_internal_function_call_ids(tree.root, None);
     // Add debugger trace entry for the last step with Cairo locations
     debugger_execution_trace.push(DebuggerExecutionTraceEntry {
         sierra_index: prev_cairo_location_sierra_index.unwrap(),
@@ -263,6 +267,7 @@ pub struct InternalFnCallTraceEntry {
     pub cairo_location: Option<CodeLocation>,
     pub is_panic_result: bool,
     pub debugger_execution_trace_step_index: usize,
+    pub internal_function_call_id: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -363,6 +368,54 @@ impl InternalFnCallTraceTree {
                 child_id = self.arena.get(id).and_then(|n| n.next_sibling());
             }
         }
+    }
+
+    fn set_internal_function_call_ids(
+        &mut self,
+        node_id: NodeId,
+        parent_internal_function_call_id: Option<String>,
+    ) {
+        let mut stack = VecDeque::new();
+        stack.push_back((node_id, parent_internal_function_call_id));
+
+        while let Some((current_node_id, parent_id)) = stack.pop_back() {
+            if let Some(current_node) = self.arena.get_mut(current_node_id) {
+                let data = current_node.get_mut();
+
+                data.internal_function_call_id = match parent_id {
+                    Some(parent_internal_function_call_id) => {
+                        format!(
+                            "{}-internal-call-{}",
+                            parent_internal_function_call_id, data.fp
+                        )
+                    }
+                    None => format!("internal-call-{}", data.fp),
+                };
+
+                let current_id = data.internal_function_call_id.clone();
+
+                let child_ids: Vec<_> = current_node_id.children(&self.arena).collect();
+                for child_id in child_ids {
+                    stack.push_back((child_id, Some(current_id.clone())));
+                }
+            }
+        }
+        //Recutrsion implementation have stack overflow when using String, as we have to many
+        //clone, and with &str I am not able to pas the reference to the recursive call
+        //        if let Some(node) = self.arena.get_mut(node_id) {
+        //            let data = &mut node.get_mut();
+        //
+        //            // Update internal function call ID based on parent ID
+        //            data.internal_function_call_id = match &parent_internal_function_call_id {
+        //                Some(parent_id) => format!("{}-internal-call-{}", parent_id, data.fp),
+        //                None => format!("internal-call-{}", data.fp),
+        //            };
+        //
+        //            let child_id = node.first_child();
+        //            while let Some(id) = child_id {
+        //                self.set_internal_function_call_ids(id, Some(&data.internal_function_call_id));
+        //            }
+        //        }
     }
 
     fn add_child(&mut self, entry: InternalFnCallTraceEntry) {

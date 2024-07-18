@@ -316,6 +316,7 @@ pub struct SimulationCallTrace {
     pub additional_info: SimulationCallTraceAdditionalInfo,
     pub _vm_trace: Option<Vec<TraceEntry>>,
     pub _relocated_memory: Option<Vec<Option<Felt252>>>,
+    pub contract_call_id: String,
 }
 
 fn get_simulation_info(
@@ -361,6 +362,8 @@ fn get_simulation_info(
         max_nested_error_level,
         &mut execution_result,
     );
+
+    enhance_call_trace_with_contract_call_index(&mut call_trace, None, 0);
 
     (
         SimulationInfo {
@@ -428,6 +431,7 @@ fn get_simulation_call_trace(
             .as_ref()
             .map(|vm_trace| clone_vm_trace(vm_trace)),
         _relocated_memory: call_trace_ref.relocated_memory.clone(),
+        contract_call_id: String::new(),
     }
 }
 
@@ -887,6 +891,27 @@ pub fn enhance_call_trace_with_internal_trace_and_debugger_data(
         enhance_call_trace_with_internal_trace_and_debugger_data(
             nested_call,
             classes_debugger_data,
+        );
+    }
+}
+
+fn enhance_call_trace_with_contract_call_index(
+    simulation_call_trace: &mut SimulationCallTrace,
+    parent_contract_call_index: Option<&str>,
+    current_contract_call_index: usize,
+) {
+    simulation_call_trace.contract_call_id = match parent_contract_call_index {
+        Some(parent_contract_call_index) => format!(
+            "{}-{}",
+            parent_contract_call_index, current_contract_call_index
+        ),
+        None => current_contract_call_index.to_string(),
+    };
+    for (index, nested_call) in simulation_call_trace.nested_calls.iter_mut().enumerate() {
+        enhance_call_trace_with_contract_call_index(
+            nested_call,
+            Some(&simulation_call_trace.contract_call_id),
+            index,
         );
     }
 }
