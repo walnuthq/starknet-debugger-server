@@ -26,16 +26,16 @@ use verification::cairo_debug_info::{CodeLocation, SierraStatementToCairoDebugIn
 use walnut_shared::decode_felt252;
 
 use crate::{
-    call_trace::{ContractCall, InternalFnCallIO},
+    call_trace::{ContractCall, ESysCall, InternalFnCallIO},
     utils::{
         compile_sierra_contract_class, felt_to_stark_felt, get_pc_mappings,
-        get_pc_to_sys_call_mappings, is_panic_result, make_casm_to_sierra_map,
+        get_pc_to_ptr_sys_call_mappings, is_panic_result, make_casm_to_sierra_map,
     },
 };
 
 pub struct Mappings {
     pub pc_to_inst_indexes_map: HashMap<usize, usize>,
-    pub pc_to_sys_calls: HashMap<usize, CellExpression>,
+    pub pc_to_ptr_sys_calls: HashMap<usize, CellExpression>,
     pub casm_to_sierra_map: HashMap<usize, Vec<usize>>,
     pub sierra_program: Program,
     pub memory_map: HashMap<usize, BigInt>,
@@ -62,8 +62,8 @@ impl Mappings {
         let casm_to_sierra_map = make_casm_to_sierra_map(&casm_program.debug_info);
         let (_pc_inst_map, pc_to_inst_indexes_map) = get_pc_mappings(relocated_memory, vm_trace);
 
-        let pc_to_sys_calls =
-            get_pc_to_sys_call_mappings(&casm_program.instructions, &pc_to_inst_indexes_map);
+        let pc_to_ptr_sys_calls =
+            get_pc_to_ptr_sys_call_mappings(&casm_program.instructions, &pc_to_inst_indexes_map);
         let memory_map: HashMap<usize, BigInt> = relocated_memory
             .iter()
             .filter_map(|x| x.as_ref().map(|_| x.clone().unwrap()))
@@ -90,7 +90,7 @@ impl Mappings {
 
         Ok(Mappings {
             pc_to_inst_indexes_map,
-            pc_to_sys_calls,
+            pc_to_ptr_sys_calls,
             casm_to_sierra_map,
             sierra_program,
             memory_map,
@@ -283,20 +283,20 @@ impl Mappings {
         results
     }
 
-    pub fn get_system_call_selector_at_trace_step(
+    pub fn get_system_call_at_trace_step(
         &self,
         relocated_memory: &Vec<Option<Felt252>>,
         trace_entry: &TraceEntry,
-    ) -> Option<ContractCall> {
+    ) -> Option<ESysCall> {
         let pc = trace_entry.pc as usize;
-        let sys_call = self.pc_to_sys_calls.get(&pc);
-        let mut contract_call = None;
-        match sys_call {
-            Some(sys_call) => {
+        let fp = trace_entry.fp as usize;
+        let ptr_sys_call = self.pc_to_ptr_sys_calls.get(&pc);
+        match ptr_sys_call {
+            Some(ptr_sys_call) => {
                 let value = get_value_from_cell_expression(
                     relocated_memory,
                     trace_entry,
-                    sys_call,
+                    ptr_sys_call,
                     &ApChange::Known(0),
                 )
                 .unwrap();
@@ -304,11 +304,6 @@ impl Mappings {
                 let felt_value = relocated_memory.get(ptr).unwrap();
                 ptr += 1;
                 let starkfelt = felt_to_stark_felt(&felt_value.as_ref().unwrap());
-                //TODO: https://github.com/walnuthq/blockifier/blob/a6200402ab635d8a8e175f7f135be5914c960007/crates/blockifier/src/execution/deprecated_syscalls/mod.rs#L75
-                //The 'try_from' failed
-                //The entry point to use this decode process is from here - https://github.com/walnuthq/blockifier/blob/a6200402ab635d8a8e175f7f135be5914c960007/crates/blockifier/src/execution/syscalls/hint_processor.rs#L288
-                //Overall I think we got the correct value from the memory, but we are not
-                //able to decode it to starkfelt
                 let selector = SyscallSelector::try_from(starkfelt);
                 match selector {
                     Ok(selector) => {
@@ -326,25 +321,25 @@ impl Mappings {
                                     relocated_memory.get(ptr).unwrap().clone().unwrap();
                                 let function_selector =
                                     format!("0x{:0>64}", felt_value.to_str_radix(16));
-                                contract_call = Some(ContractCall {
+                                let contract_call = ContractCall {
+                                    fp,
+                                    pc,
                                     contract_address,
                                     function_selector,
-                                });
-                                // Then we can get calldata if needed
+                                };
+                                Some(ESysCall::ContractCall(contract_call))
                             }
-                            _ => {}
+                            _ => None,
                         }
-                        contract_call
-                        //Some(format!("{:?}", selector))
                     }
                     Err(e) => {
                         dbg!(e);
-                        contract_call
+                        None
                     }
                 }
             }
 
-            None => contract_call,
+            None => None,
         }
     }
 }

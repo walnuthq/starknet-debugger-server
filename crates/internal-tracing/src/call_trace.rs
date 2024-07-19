@@ -5,21 +5,27 @@ use cairo_vm::vm::trace::trace_entry::TraceEntry;
 use indextree::{Arena, NodeId};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::collections::VecDeque;
 use verification::cairo_debug_info::{CodeLocation, SierraStatementToCairoDebugInfo};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct ContractCall {
+    pub fp: usize,
+    pub pc: usize,
     pub contract_address: String,
     pub function_selector: String,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub enum ESysCall {
+    ContractCall(ContractCall),
+}
+
 #[derive(Debug, Serialize)]
 pub struct DebuggerExecutionTraceEntry {
-    pub sierra_index: usize,
+    pub sierra_index: Option<usize>,
     pub results: Vec<InternalFnCallIO>,
     pub arguments: Vec<InternalFnCallIO>,
-    pub contract_calls: Vec<ContractCall>,
+    pub contract_call: Option<ContractCall>,
 }
 
 pub fn get_internal_call_trace(
@@ -61,7 +67,6 @@ pub fn get_internal_call_trace(
         contract_calls: Vec::new(),
         is_panic_result: false,
         debugger_execution_trace_step_index: 0,
-        internal_function_call_id: String::new(),
     });
 
     // Execution trace of the current contract call that contains data for the debugger
@@ -74,15 +79,16 @@ pub fn get_internal_call_trace(
     let mut results_accumulator: Vec<InternalFnCallIO> = Vec::new();
     // Sierra indexes of the previous step with Cairo location
     let mut prev_cairo_location_sierra_index: Option<usize> = None;
-    let mut system_contract_calls: Vec<ContractCall> = Vec::new();
-    let mut fp_system_contract_calls: HashMap<usize, Vec<ContractCall>> = HashMap::new();
 
     for (i, trace_entry) in vm_trace.iter().enumerate() {
         let new_fp = trace_entry.fp;
 
         // Active Sierra indexes at the current step
         let sierra_indexes = mappings.get_sierra_indexes_at_pc(&trace_entry.pc);
-        let first_sierra_index = sierra_indexes.as_ref().and_then(|indexes| indexes.first());
+        let first_sierra_index = sierra_indexes
+            .as_ref()
+            .and_then(|indexes| indexes.first())
+            .copied();
 
         // Active Cairo locations at the current step (can be empty)
         let cairo_locations = match (sierra_statements_to_cairo_info, &sierra_indexes) {
@@ -98,11 +104,12 @@ pub fn get_internal_call_trace(
         let mut arguments: Vec<InternalFnCallIO> = Vec::new();
         // Results at the current step (can be empty)
         let mut results: Vec<InternalFnCallIO> = Vec::new();
+        // Contract Call at current step (can be empty)
 
         if new_fp > prev_fp {
             // If the FP register increases, that means we have entered a nested function call
             let function =
-                first_sierra_index.and_then(|si| mappings.get_sierra_function_at_sierra_index(si));
+                first_sierra_index.and_then(|si| mappings.get_sierra_function_at_sierra_index(&si));
 
             let prev_trace_entry = &vm_trace[i - 1];
             let prev_sierra_index = mappings.get_first_sierra_index_at_pc(&prev_trace_entry.pc);
@@ -128,7 +135,6 @@ pub fn get_internal_call_trace(
                 contract_calls: Vec::new(),
                 is_panic_result: false,
                 debugger_execution_trace_step_index: debugger_execution_trace.len(),
-                internal_function_call_id: String::new(),
             };
 
             // Add the nested call and set it as the current node
@@ -218,10 +224,10 @@ pub fn get_internal_call_trace(
                     } else {
                         // Then add debugger trace entry for the previous step with Cairo location
                         debugger_execution_trace.push(DebuggerExecutionTraceEntry {
-                            sierra_index: prev_cairo_location_sierra_index.unwrap(),
+                            sierra_index: prev_cairo_location_sierra_index,
                             results: results_accumulator.clone(),
                             arguments: arguments_accumulator.clone(),
-                            contract_calls: vec![],
+                            contract_call: None,
                         });
                         // And accumulate arguments and results
                         results_accumulator = results.clone();
@@ -232,26 +238,28 @@ pub fn get_internal_call_trace(
                 }
             }
         }
-        let contract_call =
-            mappings.get_system_call_selector_at_trace_step(relocated_memory, trace_entry);
-        if let Some(contract) = contract_call {
-            system_contract_calls.push(contract.clone());
-            // Update fp_system_calls with the current fp and system call
-            fp_system_contract_calls
-                .entry(trace_entry.fp)
-                .or_insert_with(Vec::new)
-                .push(contract.clone());
+
+        let system_call = mappings.get_system_call_at_trace_step(relocated_memory, trace_entry);
+        match system_call {
+            Some(ESysCall::ContractCall(contract)) => {
+                debugger_execution_trace.push(DebuggerExecutionTraceEntry {
+                    sierra_index: first_sierra_index,
+                    results: results.clone(),
+                    arguments: arguments.clone(),
+                    contract_call: Some(contract),
+                })
+            }
+            None => {}
         }
     }
-    tree.set_system_contract_calls(tree.root, &fp_system_contract_calls);
+    //tree.set_system_contract_calls(tree.root, &fp_system_contract_calls);
     tree.set_deepest_panic_result();
-    tree.set_internal_function_call_ids(tree.root, None);
     // Add debugger trace entry for the last step with Cairo locations
     debugger_execution_trace.push(DebuggerExecutionTraceEntry {
-        sierra_index: prev_cairo_location_sierra_index.unwrap(),
+        sierra_index: prev_cairo_location_sierra_index,
         results: results_accumulator,
         arguments: arguments_accumulator,
-        contract_calls: system_contract_calls,
+        contract_call: None,
     });
 
     Ok((tree.get_root_serializable(), debugger_execution_trace))
@@ -267,7 +275,6 @@ pub struct InternalFnCallTraceEntry {
     pub cairo_location: Option<CodeLocation>,
     pub is_panic_result: bool,
     pub debugger_execution_trace_step_index: usize,
-    pub internal_function_call_id: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -350,73 +357,25 @@ impl InternalFnCallTraceTree {
         self.mark_deepest_panic_node(self.root, 0, max_depth);
     }
 
-    fn set_system_contract_calls(
-        &mut self,
-        node_id: NodeId,
-        system_contract_calls: &HashMap<usize, Vec<ContractCall>>,
-    ) {
-        if let Some(node) = self.arena.get_mut(node_id) {
-            let data = &mut node.get_mut();
-            let fp = data.fp;
-            if system_contract_calls.contains_key(&fp) {
-                data.contract_calls = system_contract_calls.get(&fp).unwrap().clone();
-            }
-
-            let mut child_id = node.first_child();
-            while let Some(id) = child_id {
-                self.set_system_contract_calls(id, system_contract_calls);
-                child_id = self.arena.get(id).and_then(|n| n.next_sibling());
-            }
-        }
-    }
-
-    fn set_internal_function_call_ids(
-        &mut self,
-        node_id: NodeId,
-        parent_internal_function_call_id: Option<String>,
-    ) {
-        let mut stack = VecDeque::new();
-        stack.push_back((node_id, parent_internal_function_call_id));
-
-        while let Some((current_node_id, parent_id)) = stack.pop_back() {
-            if let Some(current_node) = self.arena.get_mut(current_node_id) {
-                let data = current_node.get_mut();
-
-                data.internal_function_call_id = match parent_id {
-                    Some(parent_internal_function_call_id) => {
-                        format!(
-                            "{}-internal-call-{}",
-                            parent_internal_function_call_id, data.fp
-                        )
-                    }
-                    None => format!("internal-call-{}", data.fp),
-                };
-
-                let current_id = data.internal_function_call_id.clone();
-
-                let child_ids: Vec<_> = current_node_id.children(&self.arena).collect();
-                for child_id in child_ids {
-                    stack.push_back((child_id, Some(current_id.clone())));
-                }
-            }
-        }
-        //Recutrsion implementation have stack overflow when using String, as we have to many
-        //clone, and with &str I am not able to pas the reference to the recursive call
-        //        if let Some(node) = self.arena.get_mut(node_id) {
-        //            let data = &mut node.get_mut();
-        //
-        //            // Update internal function call ID based on parent ID
-        //            data.internal_function_call_id = match &parent_internal_function_call_id {
-        //                Some(parent_id) => format!("{}-internal-call-{}", parent_id, data.fp),
-        //                None => format!("internal-call-{}", data.fp),
-        //            };
-        //
-        //            let child_id = node.first_child();
-        //            while let Some(id) = child_id {
-        //                self.set_internal_function_call_ids(id, Some(&data.internal_function_call_id));
-        //            }
-        //        }
-    }
+    //    fn set_system_contract_calls(
+    //        &mut self,
+    //        node_id: NodeId,
+    //        system_contract_calls: &HashMap<usize, Vec<ContractCall>>,
+    //    ) {
+    //        if let Some(node) = self.arena.get_mut(node_id) {
+    //            let data = &mut node.get_mut();
+    //            let fp = data.fp;
+    //            if system_contract_calls.contains_key(&fp) {
+    //                data.contract_calls = system_contract_calls.get(&fp).unwrap().clone();
+    //            }
+    //
+    //            let mut child_id = node.first_child();
+    //            while let Some(id) = child_id {
+    //                self.set_system_contract_calls(id, system_contract_calls);
+    //                child_id = self.arena.get(id).and_then(|n| n.next_sibling());
+    //            }
+    //        }
+    //    }
 
     fn add_child(&mut self, entry: InternalFnCallTraceEntry) {
         let child = self.arena.new_node(entry);

@@ -118,18 +118,19 @@ pub fn get_pc_mappings(
     (pc_inst_map, pc_to_inst_indexes_map)
 }
 
-pub fn get_pc_to_sys_call_mappings(
+pub fn get_pc_to_ptr_sys_call_mappings(
     casm_instructions: &Vec<CasmInstruction>,
     pc_to_inst_indexes_map: &HashMap<usize, usize>,
 ) -> HashMap<usize, CellExpression> {
     pc_to_inst_indexes_map
         .iter()
         .filter_map(|(pc, casm_index)| {
+            //TODO! Check why this happen
             if *casm_index >= casm_instructions.len() {
                 return None;
             }
             let instruction = casm_instructions[*casm_index].clone();
-            if let Some(system) = instruction.hints.iter().find_map(|hint| match hint {
+            if let Some(system_ptr) = instruction.hints.iter().find_map(|hint| match hint {
                 Hint::Starknet(starknet_hint) => match starknet_hint {
                     StarknetHint::SystemCall { system } => {
                         Some(CellExpression::from_res_operand(system.clone()))
@@ -138,7 +139,7 @@ pub fn get_pc_to_sys_call_mappings(
                 },
                 _ => None,
             }) {
-                Some((*pc, system))
+                Some((*pc, system_ptr))
             } else {
                 None
             }
