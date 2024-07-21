@@ -9,8 +9,6 @@ use verification::cairo_debug_info::{CodeLocation, SierraStatementToCairoDebugIn
 
 #[derive(Debug, Serialize, Clone)]
 pub struct ContractCall {
-    pub fp: usize,
-    pub pc: usize,
     pub contract_address: String,
     pub function_selector: String,
 }
@@ -33,6 +31,7 @@ pub fn get_internal_call_trace(
     relocated_memory: &Vec<Option<Felt252>>,
     vm_trace: &Vec<TraceEntry>,
     sierra_statements_to_cairo_info: Option<&HashMap<usize, SierraStatementToCairoDebugInfo>>,
+    parent_contract_call_id: &String,
 ) -> Result<(
     InternalFnCallTraceEntryNode,
     Vec<DebuggerExecutionTraceEntry>,
@@ -64,9 +63,9 @@ pub fn get_internal_call_trace(
         cairo_location: entrypoint_cairo_locations.first().cloned(),
         arguments: Vec::new(),
         results: Vec::new(),
-        contract_calls: Vec::new(),
         is_panic_result: false,
         debugger_execution_trace_step_index: 0,
+        calls_order: Vec::new(),
     });
 
     // Execution trace of the current contract call that contains data for the debugger
@@ -79,6 +78,10 @@ pub fn get_internal_call_trace(
     let mut results_accumulator: Vec<InternalFnCallIO> = Vec::new();
     // Sierra indexes of the previous step with Cairo location
     let mut prev_cairo_location_sierra_index: Option<usize> = None;
+    // Orders of the calls in the transaction - function calls id are fp, and contract calls id is
+    // parent_call + the contract_id
+    let mut calls_order: Vec<String> = Vec::new();
+    let mut contract_id = 0;
 
     for (i, trace_entry) in vm_trace.iter().enumerate() {
         let new_fp = trace_entry.fp;
@@ -124,6 +127,8 @@ pub fn get_internal_call_trace(
                 None => Vec::new(),
             };
 
+            calls_order.push(new_fp.to_string());
+
             let call_entry = InternalFnCallTraceEntry {
                 fn_name: function
                     .and_then(|f| f.id.debug_name.clone())
@@ -132,9 +137,9 @@ pub fn get_internal_call_trace(
                 cairo_location: cairo_locations.first().cloned(),
                 arguments: arguments.clone(),
                 results: Vec::new(),
-                contract_calls: Vec::new(),
                 is_panic_result: false,
                 debugger_execution_trace_step_index: debugger_execution_trace.len(),
+                calls_order: Vec::new(),
             };
 
             // Add the nested call and set it as the current node
@@ -242,6 +247,14 @@ pub fn get_internal_call_trace(
         let system_call = mappings.get_system_call_at_trace_step(relocated_memory, trace_entry);
         match system_call {
             Some(ESysCall::ContractCall(contract)) => {
+                let contract_call_id = format!("{}-{}", parent_contract_call_id, contract_id);
+                if let Some(last_element) = calls_order.last() {
+                    if last_element == &trace_entry.fp.to_string() {
+                        calls_order.pop();
+                    }
+                }
+                calls_order.push(contract_call_id);
+                contract_id += 1;
                 debugger_execution_trace.push(DebuggerExecutionTraceEntry {
                     sierra_index: first_sierra_index,
                     results: results.clone(),
@@ -252,7 +265,7 @@ pub fn get_internal_call_trace(
             None => {}
         }
     }
-    //tree.set_system_contract_calls(tree.root, &fp_system_contract_calls);
+    tree.set_calls_order_to_current_node(&calls_order);
     tree.set_deepest_panic_result();
     // Add debugger trace entry for the last step with Cairo locations
     debugger_execution_trace.push(DebuggerExecutionTraceEntry {
@@ -271,10 +284,10 @@ pub struct InternalFnCallTraceEntry {
     pub fp: usize,
     pub results: Vec<InternalFnCallIO>,
     pub arguments: Vec<InternalFnCallIO>,
-    pub contract_calls: Vec<ContractCall>,
     pub cairo_location: Option<CodeLocation>,
     pub is_panic_result: bool,
     pub debugger_execution_trace_step_index: usize,
+    pub calls_order: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -395,6 +408,13 @@ impl InternalFnCallTraceTree {
         if let Some(node) = self.arena.get_mut(self.current_node) {
             let data = node.get_mut();
             data.results = results;
+        }
+    }
+
+    fn set_calls_order_to_current_node(&mut self, calls_order_id: &[String]) {
+        if let Some(node) = self.arena.get_mut(self.current_node) {
+            let data = node.get_mut();
+            data.calls_order = calls_order_id.to_owned();
         }
     }
 

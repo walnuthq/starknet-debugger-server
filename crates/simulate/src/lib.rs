@@ -850,6 +850,7 @@ pub fn enhance_call_trace_with_internal_trace_and_debugger_data(
     simulation_call_trace: &mut SimulationCallTrace,
     classes_debugger_data: &HashMap<String, ClassDebuggerDataWithContractClass>,
 ) {
+    let parent_contract_call_id = simulation_call_trace.contract_call_id.clone();
     let (internal_fn_call_trace, call_debugger_data) = match (
         simulation_call_trace.entry_point.class_hash,
         &simulation_call_trace._relocated_memory,
@@ -862,6 +863,7 @@ pub fn enhance_call_trace_with_internal_trace_and_debugger_data(
                         relocated_memory,
                         vm_trace,
                         full_class_debugger_data,
+                        &parent_contract_call_id,
                     ) {
                         Ok((internal_fn_call_trace, call_debugger_data)) => {
                             (Some(internal_fn_call_trace), Some(call_debugger_data))

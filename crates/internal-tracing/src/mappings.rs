@@ -310,7 +310,7 @@ impl Mappings {
                         match selector {
                             DeprecatedSyscallSelector::CallContract => {
                                 // https://github.com/starkware-libs/blockifier/blob/9bfb3d4c8bf1b68a0c744d1249b32747c75a4d87/crates/blockifier/src/execution/syscalls/hint_processor.rs#L302C13-L306C15
-                                let felt_value = relocated_memory.get(ptr).unwrap();
+                                let _felt_value = relocated_memory.get(ptr).unwrap();
                                 ptr += 1;
                                 let felt_value: Felt252 =
                                     relocated_memory.get(ptr).unwrap().clone().unwrap();
@@ -322,8 +322,6 @@ impl Mappings {
                                 let function_selector =
                                     format!("0x{:0>64}", felt_value.to_str_radix(16));
                                 let contract_call = ContractCall {
-                                    fp,
-                                    pc,
                                     contract_address,
                                     function_selector,
                                 };
