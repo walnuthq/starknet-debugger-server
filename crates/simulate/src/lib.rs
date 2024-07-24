@@ -73,6 +73,7 @@ use std::sync::Arc;
 use walnut_shared::clone_vm_trace;
 use walnut_shared::extract_chain_id;
 use walnut_shared::felt252_to_hex;
+use walnut_shared::get_contract_call_id;
 use walnut_shared::{
     create_rpc_client, decode_felt252, felt_vec_to_event_vec, EventItems, StructItems,
 };
@@ -902,13 +903,8 @@ fn enhance_call_trace_with_contract_call_index(
     parent_contract_call_index: Option<&str>,
     current_contract_call_index: usize,
 ) {
-    simulation_call_trace.contract_call_id = match parent_contract_call_index {
-        Some(parent_contract_call_index) => format!(
-            "{}-{}",
-            parent_contract_call_index, current_contract_call_index
-        ),
-        None => current_contract_call_index.to_string(),
-    };
+    simulation_call_trace.contract_call_id =
+        get_contract_call_id(parent_contract_call_index, current_contract_call_index);
     for (index, nested_call) in simulation_call_trace.nested_calls.iter_mut().enumerate() {
         enhance_call_trace_with_contract_call_index(
             nested_call,

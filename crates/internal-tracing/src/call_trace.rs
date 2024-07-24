@@ -6,6 +6,7 @@ use indextree::{Arena, NodeId};
 use serde::Serialize;
 use std::collections::HashMap;
 use verification::cairo_debug_info::{CodeLocation, SierraStatementToCairoDebugInfo};
+use walnut_shared::{get_contract_call_id, get_internal_function_call_id};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct ContractCall {
@@ -55,18 +56,22 @@ pub fn get_internal_call_trace(
             _ => Vec::new(),
         };
 
-    let mut tree = InternalFnCallTraceTree::new(InternalFnCallTraceEntry {
-        fn_name: entrypoint_function
-            .and_then(|f| f.id.debug_name.clone())
-            .and_then(|n| Some(n.to_string())),
-        fp: prev_fp,
-        cairo_location: entrypoint_cairo_locations.first().cloned(),
-        arguments: Vec::new(),
-        results: Vec::new(),
-        is_panic_result: false,
-        debugger_execution_trace_step_index: 0,
-        calls_order: Vec::new(),
-    });
+    let mut tree = InternalFnCallTraceTree::new(
+        InternalFnCallTraceEntry {
+            id: get_internal_function_call_id(&parent_contract_call_id, first_vm_trace_entry.fp),
+            fn_name: entrypoint_function
+                .and_then(|f| f.id.debug_name.clone())
+                .and_then(|n| Some(n.to_string())),
+            fp: prev_fp,
+            cairo_location: entrypoint_cairo_locations.first().cloned(),
+            arguments: Vec::new(),
+            results: Vec::new(),
+            is_panic_result: false,
+            debugger_execution_trace_step_index: 0,
+            calls_order: Vec::new(),
+        },
+        parent_contract_call_id.to_owned(),
+    );
 
     // Execution trace of the current contract call that contains data for the debugger
     let mut debugger_execution_trace: Vec<DebuggerExecutionTraceEntry> = Vec::new();
@@ -78,10 +83,8 @@ pub fn get_internal_call_trace(
     let mut results_accumulator: Vec<InternalFnCallIO> = Vec::new();
     // Sierra indexes of the previous step with Cairo location
     let mut prev_cairo_location_sierra_index: Option<usize> = None;
-    // Orders of the calls in the transaction - function calls id are fp, and contract calls id is
-    // parent_call + the contract_id
-    let mut calls_order: Vec<String> = Vec::new();
-    let mut contract_id = 0;
+
+    let mut contract_call_index = 0;
 
     for (i, trace_entry) in vm_trace.iter().enumerate() {
         let new_fp = trace_entry.fp;
@@ -127,9 +130,8 @@ pub fn get_internal_call_trace(
                 None => Vec::new(),
             };
 
-            calls_order.push(new_fp.to_string());
-
             let call_entry = InternalFnCallTraceEntry {
+                id: get_internal_function_call_id(&parent_contract_call_id, new_fp),
                 fn_name: function
                     .and_then(|f| f.id.debug_name.clone())
                     .and_then(|n| Some(n.to_string())),
@@ -143,21 +145,7 @@ pub fn get_internal_call_trace(
             };
 
             // Add the nested call and set it as the current node
-            tree.add_child(call_entry);
-
-            // Alternative implementation of get_arguments
-            // https://docs.cairo-lang.org/how_cairo_works/functions.html#argument
-            // TODO: check if is algorithm is correct and fix if needed
-            // for argument in call_entry.arguments.iter_mut().rev() {
-            //     let type_size = argument.type_size as usize;
-            //     let mut values: Vec<String> = Vec::new();
-            //     for i in 1..(type_size + 1) {
-            //         let addr = trace_entry.ap - 2 - type_size + i;
-            //         let value = mappings.common_debug_data.memory_map.get(&addr).unwrap();
-            //         values.push(value.clone().to_string());
-            //     }
-            //     argument.value = values;
-            // }
+            tree.enter_nested_call(call_entry);
         } else if new_fp < prev_fp {
             // If the FP register decreases, that means we have exited the function call
             let prev_trace_entry = &vm_trace[i - 1];
@@ -176,22 +164,6 @@ pub fn get_internal_call_trace(
             tree.set_results_to_current_node(results.clone());
             // Return to the parent function call
             tree.move_to_parent();
-
-            // Alternative implementation of get_results
-            // https://docs.cairo-lang.org/how_cairo_works/functions.html#return-values
-            // TODO: check if is algorithm is correct and fix if needed
-            // for result in exit_function.results.iter().rev() {
-            //     let type_size = result.type_size as usize;
-            //     let mut values: Vec<String> = Vec::new();
-            //     for i in 1..(type_size + 1) {
-            //         let addr = trace_entry.ap - type_size + i - offset;
-            //         let value = mappings.common_debug_data.memory_map.get(&addr).unwrap();
-            //         values.push(value.clone().to_string());
-            //     }
-            //     result_values.push(values);
-            //     offset += type_size;
-            // }
-            // result_values.reverse();
         } else {
             let current_function = tree.get_current_node_data();
             if let Some(cairo_location) = cairo_locations.first() {
@@ -247,39 +219,39 @@ pub fn get_internal_call_trace(
         let system_call = mappings.get_system_call_at_trace_step(relocated_memory, trace_entry);
         match system_call {
             Some(ESysCall::ContractCall(contract)) => {
-                let contract_call_id = format!("{}-{}", parent_contract_call_id, contract_id);
-                if let Some(last_element) = calls_order.last() {
-                    if last_element == &trace_entry.fp.to_string() {
-                        calls_order.pop();
-                    }
-                }
-                calls_order.push(contract_call_id);
-                contract_id += 1;
+                let contract_call_id =
+                    get_contract_call_id(Some(parent_contract_call_id), contract_call_index);
+                tree.push_contract_call_to_calls_order(&contract_call_id);
                 debugger_execution_trace.push(DebuggerExecutionTraceEntry {
                     sierra_index: first_sierra_index,
                     results: results.clone(),
                     arguments: arguments.clone(),
                     contract_call: Some(contract),
-                })
+                });
+                contract_call_index += 1;
             }
             None => {}
         }
     }
-    tree.set_calls_order_to_current_node(&calls_order);
+
     tree.set_deepest_panic_result();
-    // Add debugger trace entry for the last step with Cairo locations
-    debugger_execution_trace.push(DebuggerExecutionTraceEntry {
-        sierra_index: prev_cairo_location_sierra_index,
-        results: results_accumulator,
-        arguments: arguments_accumulator,
-        contract_call: None,
-    });
+
+    if prev_cairo_location_sierra_index.is_some() {
+        // Add debugger trace entry for the last step with Cairo locations
+        debugger_execution_trace.push(DebuggerExecutionTraceEntry {
+            sierra_index: prev_cairo_location_sierra_index,
+            results: results_accumulator,
+            arguments: arguments_accumulator,
+            contract_call: None,
+        });
+    }
 
     Ok((tree.get_root_serializable(), debugger_execution_trace))
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct InternalFnCallTraceEntry {
+    pub id: String,
     pub fn_name: Option<String>,
     pub fp: usize,
     pub results: Vec<InternalFnCallIO>,
@@ -307,16 +279,18 @@ struct InternalFnCallTraceTree {
     arena: Arena<InternalFnCallTraceEntry>,
     current_node: NodeId,
     root: NodeId,
+    contract_call_id: String,
 }
 
 impl InternalFnCallTraceTree {
-    fn new(root_entry: InternalFnCallTraceEntry) -> Self {
+    fn new(root_entry: InternalFnCallTraceEntry, contract_call_id: String) -> Self {
         let mut arena = Arena::new();
         let root = arena.new_node(root_entry);
         InternalFnCallTraceTree {
             arena,
             current_node: root,
             root,
+            contract_call_id,
         }
     }
 
@@ -370,30 +344,24 @@ impl InternalFnCallTraceTree {
         self.mark_deepest_panic_node(self.root, 0, max_depth);
     }
 
-    //    fn set_system_contract_calls(
-    //        &mut self,
-    //        node_id: NodeId,
-    //        system_contract_calls: &HashMap<usize, Vec<ContractCall>>,
-    //    ) {
-    //        if let Some(node) = self.arena.get_mut(node_id) {
-    //            let data = &mut node.get_mut();
-    //            let fp = data.fp;
-    //            if system_contract_calls.contains_key(&fp) {
-    //                data.contract_calls = system_contract_calls.get(&fp).unwrap().clone();
-    //            }
-    //
-    //            let mut child_id = node.first_child();
-    //            while let Some(id) = child_id {
-    //                self.set_system_contract_calls(id, system_contract_calls);
-    //                child_id = self.arena.get(id).and_then(|n| n.next_sibling());
-    //            }
-    //        }
-    //    }
+    fn enter_nested_call(&mut self, entry: InternalFnCallTraceEntry) {
+        let contract_call_id = self.contract_call_id.clone();
+        if let Some(node) = self.arena.get_mut(self.current_node) {
+            let data = node.get_mut();
+            data.calls_order
+                .push(get_internal_function_call_id(&contract_call_id, entry.fp));
+        }
 
-    fn add_child(&mut self, entry: InternalFnCallTraceEntry) {
         let child = self.arena.new_node(entry);
         self.current_node.append(child, &mut self.arena);
         self.current_node = child;
+    }
+
+    fn push_contract_call_to_calls_order(&mut self, contract_call_id: &String) {
+        if let Some(node) = self.arena.get_mut(self.current_node) {
+            let data = node.get_mut();
+            data.calls_order.push(contract_call_id.to_string());
+        }
     }
 
     fn move_to_parent(&mut self) {
@@ -408,13 +376,6 @@ impl InternalFnCallTraceTree {
         if let Some(node) = self.arena.get_mut(self.current_node) {
             let data = node.get_mut();
             data.results = results;
-        }
-    }
-
-    fn set_calls_order_to_current_node(&mut self, calls_order_id: &[String]) {
-        if let Some(node) = self.arena.get_mut(self.current_node) {
-            let data = node.get_mut();
-            data.calls_order = calls_order_id.to_owned();
         }
     }
 
