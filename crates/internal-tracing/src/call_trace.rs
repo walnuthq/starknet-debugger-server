@@ -20,11 +20,22 @@ pub enum ESysCall {
 }
 
 #[derive(Debug, Serialize)]
-pub struct DebuggerExecutionTraceEntry {
-    pub sierra_index: Option<usize>,
+pub enum DebuggerExecutionTraceEntry {
+    WithLocation(DebuggerExecutionTraceEntryWithLocation),
+    WithContractCall(DebuggerExecutionTraceEntryWithContractCall),
+}
+
+#[derive(Debug, Serialize)]
+pub struct DebuggerExecutionTraceEntryWithContractCall {
+    pub contract_call: ContractCall,
+    pub contract_call_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DebuggerExecutionTraceEntryWithLocation {
+    pub sierra_index: usize,
     pub results: Vec<InternalFnCallIO>,
     pub arguments: Vec<InternalFnCallIO>,
-    pub contract_call: Option<ContractCall>,
 }
 
 pub fn get_internal_call_trace(
@@ -68,7 +79,7 @@ pub fn get_internal_call_trace(
             results: Vec::new(),
             is_panic_result: false,
             debugger_execution_trace_step_index: 0,
-            calls_order: Vec::new(),
+            nested_calls_ids: Vec::new(),
         },
         parent_contract_call_id.to_owned(),
     );
@@ -141,7 +152,7 @@ pub fn get_internal_call_trace(
                 results: Vec::new(),
                 is_panic_result: false,
                 debugger_execution_trace_step_index: debugger_execution_trace.len(),
-                calls_order: Vec::new(),
+                nested_calls_ids: Vec::new(),
             };
 
             // Add the nested call and set it as the current node
@@ -200,12 +211,13 @@ pub fn get_internal_call_trace(
                         }
                     } else {
                         // Then add debugger trace entry for the previous step with Cairo location
-                        debugger_execution_trace.push(DebuggerExecutionTraceEntry {
-                            sierra_index: prev_cairo_location_sierra_index,
-                            results: results_accumulator.clone(),
-                            arguments: arguments_accumulator.clone(),
-                            contract_call: None,
-                        });
+                        debugger_execution_trace.push(DebuggerExecutionTraceEntry::WithLocation(
+                            DebuggerExecutionTraceEntryWithLocation {
+                                sierra_index: prev_cairo_location_sierra_index.unwrap(),
+                                results: results_accumulator.clone(),
+                                arguments: arguments_accumulator.clone(),
+                            },
+                        ));
                         // And accumulate arguments and results
                         results_accumulator = results.clone();
                         arguments_accumulator = arguments.clone();
@@ -222,12 +234,12 @@ pub fn get_internal_call_trace(
                 let contract_call_id =
                     get_contract_call_id(Some(parent_contract_call_id), contract_call_index);
                 tree.push_contract_call_to_calls_order(&contract_call_id);
-                debugger_execution_trace.push(DebuggerExecutionTraceEntry {
-                    sierra_index: first_sierra_index,
-                    results: results.clone(),
-                    arguments: arguments.clone(),
-                    contract_call: Some(contract),
-                });
+                debugger_execution_trace.push(DebuggerExecutionTraceEntry::WithContractCall(
+                    DebuggerExecutionTraceEntryWithContractCall {
+                        contract_call: contract,
+                        contract_call_id,
+                    },
+                ));
                 contract_call_index += 1;
             }
             None => {}
@@ -236,14 +248,15 @@ pub fn get_internal_call_trace(
 
     tree.set_deepest_panic_result();
 
-    if prev_cairo_location_sierra_index.is_some() {
+    if let Some(sierra_index) = prev_cairo_location_sierra_index {
         // Add debugger trace entry for the last step with Cairo locations
-        debugger_execution_trace.push(DebuggerExecutionTraceEntry {
-            sierra_index: prev_cairo_location_sierra_index,
-            results: results_accumulator,
-            arguments: arguments_accumulator,
-            contract_call: None,
-        });
+        debugger_execution_trace.push(DebuggerExecutionTraceEntry::WithLocation(
+            DebuggerExecutionTraceEntryWithLocation {
+                sierra_index,
+                results: results_accumulator,
+                arguments: arguments_accumulator,
+            },
+        ));
     }
 
     Ok((tree.get_root_serializable(), debugger_execution_trace))
@@ -259,7 +272,7 @@ pub struct InternalFnCallTraceEntry {
     pub cairo_location: Option<CodeLocation>,
     pub is_panic_result: bool,
     pub debugger_execution_trace_step_index: usize,
-    pub calls_order: Vec<String>,
+    pub nested_calls_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -348,7 +361,7 @@ impl InternalFnCallTraceTree {
         let contract_call_id = self.contract_call_id.clone();
         if let Some(node) = self.arena.get_mut(self.current_node) {
             let data = node.get_mut();
-            data.calls_order
+            data.nested_calls_ids
                 .push(get_internal_function_call_id(&contract_call_id, entry.fp));
         }
 
@@ -360,7 +373,7 @@ impl InternalFnCallTraceTree {
     fn push_contract_call_to_calls_order(&mut self, contract_call_id: &String) {
         if let Some(node) = self.arena.get_mut(self.current_node) {
             let data = node.get_mut();
-            data.calls_order.push(contract_call_id.to_string());
+            data.nested_calls_ids.push(contract_call_id.to_string());
         }
     }
 

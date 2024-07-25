@@ -313,7 +313,7 @@ pub struct SimulationCallTrace {
     pub nested_calls: Vec<SimulationCallTrace>,
     pub nested_level: usize,
     pub result: CallResult,
-    pub internal_fn_call_trace: Option<InternalFnCallTraceEntryNode>,
+    pub fn_calls: Vec<InternalFnCallTraceEntryNode>,
     pub additional_info: SimulationCallTraceAdditionalInfo,
     pub _vm_trace: Option<Vec<TraceEntry>>,
     pub _relocated_memory: Option<Vec<Option<Felt252>>>,
@@ -419,7 +419,7 @@ fn get_simulation_call_trace(
         nested_calls,
         nested_level,
         result: call_trace_ref.result.clone(),
-        internal_fn_call_trace: None,
+        fn_calls: Vec::new(),
         additional_info: get_additional_info(
             fork_state_reader,
             call_trace_ref.entry_point.class_hash,
@@ -886,7 +886,8 @@ pub fn enhance_call_trace_with_internal_trace_and_debugger_data(
             (None, None)
         }
     };
-    simulation_call_trace.internal_fn_call_trace = internal_fn_call_trace;
+    simulation_call_trace.fn_calls =
+        internal_fn_call_trace.map_or_else(Vec::new, |trace| vec![trace]);
     simulation_call_trace.additional_info.call_debugger_data = call_debugger_data;
     simulation_call_trace._vm_trace = None;
     simulation_call_trace._relocated_memory = None;
