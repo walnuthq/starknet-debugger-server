@@ -197,7 +197,7 @@ pub async fn verify_by_contract_address(
                     .context("Contract address format is incorrect")?,
             )
             .await
-            .context("Can't find the contract class")?,
+            .context("Can't find the contract class on the network")?,
     );
 
     verify_by_class_hash(
@@ -248,7 +248,7 @@ async fn verify(
                 "Unsupported Cairo version. {}",
                 manifest.starknet_version_str
             );
-            return Err(anyhow::anyhow!("Unsupported Cairo version. Currently, we support versions 2.6.* and will add support for more versions soon."));
+            return Err(anyhow::anyhow!("Unsupported Cairo version. Currently, we support versions 2.6.3, 2.6.4 and will add support for more versions soon."));
         }
     };
 
