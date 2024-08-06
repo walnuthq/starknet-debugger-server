@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::{collections::HashMap, fs::File};
 use std::{env, fs};
-use tracing::{error, info, warn};
+use tracing::error;
 use uuid::Uuid;
 use walnut_shared::{chain_id_to_readable_string, pad_field_element_to_hex_string_length66};
 
@@ -236,7 +236,7 @@ async fn verify(
                 run_scarb_build(&tmp_dir, "scarb/scarb_cairo_v_2_6_3")?;
             }
         }
-        (2, 6, _) => {
+        (2, 6, 4) => {
             if is_arm64 {
                 run_scarb_build(&tmp_dir, "scarb/scarb_cairo_v_2_6_4_arm")?;
             } else {
@@ -248,7 +248,7 @@ async fn verify(
                 "Unsupported Cairo version. {}",
                 manifest.starknet_version_str
             );
-            return Err(anyhow::anyhow!("Unsupported Cairo version. Currently, we support versions 2.6.3, 2.6.4 and will add support for more versions soon."));
+            return Err(anyhow::anyhow!("Unsupported Cairo version. Currently, we support versions 2.6.3, 2.6.4 and will add support for more versions soon. Contact us if you need support for a different version: https://t.me/walnuthq"));
         }
     };
 
