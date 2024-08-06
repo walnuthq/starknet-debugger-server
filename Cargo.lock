@@ -6907,6 +6907,7 @@ dependencies = [
  "starknet_api",
  "tokio",
  "toml",
+ "tracing",
  "url",
  "uuid 1.6.1",
  "walnut-shared",
