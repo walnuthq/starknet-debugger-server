@@ -22,17 +22,17 @@ pub struct Data {
 }
 
 #[derive(Deserialize, Debug, Serialize, ToSchema)]
-pub struct GetSearchResponse {
-    pub transaction: Option<Vec<Data>>,
-    pub class: Option<Vec<Data>>,
-    pub contract: Option<Vec<Data>>,
+pub struct SearchResponse {
+    pub transactions: Vec<Data>,
+    pub classes: Vec<Data>,
+    pub contracts: Vec<Data>,
 }
 
 #[derive(Debug)]
 pub enum ESearchResult {
-    Transaction(Vec<Data>),
-    Contract(Vec<Data>),
-    Class(Vec<Data>),
+    Transactions(Vec<Data>),
+    Contracts(Vec<Data>),
+    Classes(Vec<Data>),
     None,
 }
 
@@ -40,13 +40,13 @@ pub enum ESearchResult {
     post,
     path = "/v1/search/{search_hash}",
     responses(
-        (status = 200, description = "Returns the contract data", body = GetSearchResponse),
-        (status = 404, description = "Contract not found for contract address", body = String)
+        (status = 200, description = "Returns the transaction, contract or class", body = SearchResponse),
+        (status = 404, description = "Transaction, contract or class not found for the hash", body = String)
     ),
     params(
         ("search_hash" = String, Path, description = "Search for transaction, contract or class"),
     ),
-    tag = "Search for transaction, class or contract"
+    tag = "Search for transaction, contract or class"
 )]
 pub async fn get_search_handler(Path(search_hash): Path<String>) -> Response {
     let hash = match FieldElement::from_str(search_hash.as_str()) {
@@ -61,35 +61,35 @@ pub async fn get_search_handler(Path(search_hash): Path<String>) -> Response {
     };
 
     match check_hash(&hash).await {
-        ESearchResult::Transaction(transaction) => {
-            let response = GetSearchResponse {
-                transaction: Some(transaction),
-                class: None,
-                contract: None,
+        ESearchResult::Transactions(transactions) => {
+            let response = SearchResponse {
+                transactions,
+                classes: vec![],
+                contracts: vec![],
             };
             (StatusCode::OK, Json(response)).into_response()
         }
-        ESearchResult::Contract(contract) => {
-            let response = GetSearchResponse {
-                transaction: None,
-                class: None,
-                contract: Some(contract),
+        ESearchResult::Contracts(contracts) => {
+            let response = SearchResponse {
+                transactions: vec![],
+                classes: vec![],
+                contracts,
             };
             (StatusCode::OK, Json(response)).into_response()
         }
-        ESearchResult::Class(class) => {
-            let response = GetSearchResponse {
-                transaction: None,
-                class: Some(class),
-                contract: None,
+        ESearchResult::Classes(classes) => {
+            let response = SearchResponse {
+                transactions: vec![],
+                classes,
+                contracts: vec![],
             };
             (StatusCode::OK, Json(response)).into_response()
         }
         ESearchResult::None => {
-            let response = GetSearchResponse {
-                transaction: None,
-                class: None,
-                contract: None,
+            let response = SearchResponse {
+                transactions: vec![],
+                classes: vec![],
+                contracts: vec![],
             };
             (StatusCode::NOT_FOUND, Json(response)).into_response()
         }
@@ -102,15 +102,15 @@ async fn check_hash(hash: &str) -> ESearchResult {
 
     if let Some(transactions) = check_transaction(hash, &[&main_chain_id, &sepolia_chain_id]).await
     {
-        return ESearchResult::Transaction(transactions);
+        return ESearchResult::Transactions(transactions);
     }
 
     if let Some(contracts) = check_contract(hash, &[&main_chain_id, &sepolia_chain_id]).await {
-        return ESearchResult::Contract(contracts);
+        return ESearchResult::Contracts(contracts);
     }
 
     if let Some(classes) = check_class(hash, &[&main_chain_id, &sepolia_chain_id]).await {
-        return ESearchResult::Class(classes);
+        return ESearchResult::Classes(classes);
     }
 
     ESearchResult::None
