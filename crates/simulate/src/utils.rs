@@ -17,6 +17,7 @@ use walnut_shared::rpc_url;
 pub fn create_fork_cached_state_at(
     chain_id: &ChainId,
     block_number: BlockNumber,
+    transaction_index: usize,
     cache_dir: &str,
 ) -> CachedState<ExtendedStateReader> {
     let url = rpc_url(chain_id);
@@ -26,6 +27,7 @@ pub fn create_fork_cached_state_at(
             fork_state_reader: ForkStateReader::new(
                 Url::parse(url).unwrap(),
                 block_number,
+                transaction_index,
                 cache_dir,
             )
             .ok(),

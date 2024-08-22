@@ -49,9 +49,10 @@ use serde_json::Value;
 use sqlx::Pool;
 use sqlx::Postgres;
 use starknet::core::types::BlockId;
+use starknet::core::types::BlockWithTxs;
 use starknet::core::types::ContractClass;
 use starknet::core::types::ExecutionResult;
-use starknet::core::types::MaybePendingBlockWithTxHashes;
+use starknet::core::types::MaybePendingBlockWithTxs;
 use starknet::core::types::MaybePendingTransactionReceipt;
 use starknet::core::types::TransactionReceipt;
 use starknet::core::types::{DeclareTransaction, FieldElement, InvokeTransaction, Transaction};
@@ -77,6 +78,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::usize;
 use thiserror::Error;
 use utils::transaction_type_to_string;
 use walnut_shared::chain_id_to_readable_string;
@@ -85,7 +87,8 @@ use walnut_shared::extract_chain_id;
 use walnut_shared::felt252_to_hex;
 use walnut_shared::get_contract_call_id;
 use walnut_shared::{
-    create_rpc_client, decode_felt252, felt_vec_to_event_vec, EventItems, StructItems,
+    create_rpc_client, decode_felt252, felt_vec_to_event_vec, starkfelt_vec_to_fieldelement_vec,
+    EventItems, StructItems,
 };
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -148,14 +151,14 @@ pub async fn simulate(
     db_pool: &Pool<Postgres>,
     s3_client: &aws_sdk_s3::Client,
     args: SimulationArgs,
-) -> Result<(SimulationInfo, BlockTimestamp), TransactionSimulationError> {
+) -> Result<(SimulationInfo, BlockTimestamp, usize), TransactionSimulationError> {
     let chain_id = args.chain_id.clone();
-    let block_timestamp =
-        get_block_timestamp(&chain_id, BlockId::Number(args.block_number.0)).await?;
+    let (block_timestamp, transaction_index) = extract_block_txs_info(&chain_id, &args).await?;
 
     let mut cached_fork_state = create_fork_cached_state_at(
         &chain_id,
         BlockNumber(args.block_number.0 - 1),
+        transaction_index,
         "tmp/sn-debugger/cache",
     );
 
@@ -191,24 +194,66 @@ pub async fn simulate(
         simulation_info.events_trace = Some(event_trace);
     }
 
-    Ok((simulation_info, block_timestamp))
+    Ok((simulation_info, block_timestamp, transaction_index))
 }
 
-async fn get_block_timestamp(
+async fn extract_block_txs_info(
     chain_id: &ChainId,
-    block_id: BlockId,
-) -> Result<BlockTimestamp, TransactionSimulationError> {
+    simulation_args: &SimulationArgs,
+) -> Result<(BlockTimestamp, usize), TransactionSimulationError> {
     let provider_client = create_rpc_client(chain_id);
-    let block_with_tx_hashes = provider_client.get_block_with_tx_hashes(block_id).await;
-
-    match block_with_tx_hashes {
-        Ok(MaybePendingBlockWithTxHashes::Block(block)) => Ok(BlockTimestamp(block.timestamp)),
-        Ok(MaybePendingBlockWithTxHashes::PendingBlock(_)) => {
+    let block_id = BlockId::Number(simulation_args.block_number.0);
+    let block_with_txs = provider_client.get_block_with_txs(block_id).await;
+    match block_with_txs {
+        Ok(MaybePendingBlockWithTxs::Block(block_txs)) => {
+            let block_timestamp = BlockTimestamp(block_txs.timestamp);
+            let transaction_index = extract_transaction_index(&block_txs, simulation_args)?;
+            Ok((block_timestamp, transaction_index))
+        }
+        Ok(MaybePendingBlockWithTxs::PendingBlock(_)) => {
             Err(TransactionSimulationError::PendingBlock(
                 "Pending block is not be allowed at the configuration level".to_string(),
             ))
         }
         Err(err) => Err(TransactionSimulationError::ProviderError(err)),
+    }
+}
+
+fn extract_transaction_index(
+    block_with_txs: &BlockWithTxs,
+    simulation_args: &SimulationArgs,
+) -> Result<usize, TransactionSimulationError> {
+    for (index, tx) in block_with_txs.transactions.iter().enumerate() {
+        if match_transaction(tx, simulation_args) {
+            return Ok(index);
+        }
+    }
+    Err(TransactionSimulationError::TransactionIndexNotFound)
+}
+
+fn match_transaction(tx: &Transaction, args: &SimulationArgs) -> bool {
+    let sender_address = FieldElement::from(*args.sender_address.0);
+    let calldata = starkfelt_vec_to_fieldelement_vec(&args.calldata.0);
+    let nonce = args.nonce.as_ref().map(|n| FieldElement::from(n.0));
+    match tx {
+        Transaction::Invoke(invoke_tx) => match (invoke_tx, args.transaction_version.0) {
+            (InvokeTransaction::V0(tx_v0), version) if version == StarkFelt::ZERO => {
+                sender_address == tx_v0.contract_address && calldata == tx_v0.calldata
+            }
+            (InvokeTransaction::V1(tx_v1), version) if version == StarkFelt::ONE => {
+                sender_address == tx_v1.sender_address
+                    && calldata == tx_v1.calldata
+                    && nonce.as_ref().map_or(false, |n| *n == tx_v1.nonce)
+            }
+            (InvokeTransaction::V3(tx_v3), version) if version == StarkFelt::THREE => {
+                sender_address == tx_v3.sender_address
+                    && calldata == tx_v3.calldata
+                    && nonce.as_ref().map_or(false, |n| *n == tx_v3.nonce)
+            }
+            //TODO Add check for Declare transaction
+            _ => false,
+        },
+        _ => false,
     }
 }
 
@@ -534,6 +579,7 @@ pub struct TransactionSimulationResult {
     pub chain_id: String,
     pub block_number: u64,
     pub block_timestamp: u64,
+    pub transaction_index_in_block: usize,
     pub nonce: Option<u64>,
     pub sender_address: String,
     pub calldata: Vec<String>,
@@ -551,6 +597,8 @@ pub enum TransactionSimulationError {
     PendingBlock(String),
     #[error("{0}")]
     TransactionExecutionError(#[from] TransactionExecutionError),
+    #[error("Transaction index can not be extracted from block")]
+    TransactionIndexNotFound,
     #[error("Transaction hash not found")]
     TransactionHashNotFound,
 }
@@ -578,13 +626,14 @@ pub async fn simulate_by_data(
         .collect::<Vec<String>>();
 
     let transaction_version: usize = args.transaction_version.0.try_into().unwrap();
-    let (simulation_result, block_timestamp) = simulate(db_pool, s3_client, args).await?;
+    let (simulation_result, block_timestamp, transaction_index_in_block) = simulate(db_pool, s3_client, args).await?;
 
     Ok(TransactionSimulationResult {
         simulation_result,
         chain_id: chain_id_readable,
         block_number,
         block_timestamp: block_timestamp.0,
+        transaction_index_in_block,
         nonce,
         sender_address,
         calldata,
@@ -613,7 +662,7 @@ pub async fn simulate_transaction_by_hash(
                 .await;
             if let Ok(transaction_receipt) = transaction_receipt {
                 if let Some(block_number) = extract_transaction_receipt(transaction_receipt) {
-                    let (simulation_result, block_timestamp) = simulate(
+                    let (simulation_result, block_timestamp, transaction_index_in_block) = simulate(
                         db_pool,
                         s3_client,
                         SimulationArgs {
@@ -640,6 +689,7 @@ pub async fn simulate_transaction_by_hash(
                         chain_id: chain_id_to_readable_string(&chain_id),
                         block_number: block_number.0,
                         block_timestamp: block_timestamp.0,
+                        transaction_index_in_block,
                         nonce,
                         sender_address: sender_address.0.to_string(),
                         calldata,
