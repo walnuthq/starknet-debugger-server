@@ -10,30 +10,24 @@ use cheatnet::{forking::state::ForkStateReader, state::ExtendedStateReader};
 use num_bigint::BigUint;
 use num_traits::Num;
 use runtime::starknet::state::DictStateReader;
-use starknet_api::{block::BlockNumber, core::ChainId};
+use starknet_api::block::BlockNumber;
 use url::Url;
-use walnut_shared::rpc_url;
+
+use crate::TransactionSimulationError;
 
 pub fn create_fork_cached_state_at(
-    chain_id: &ChainId,
+    rpc_url: Url,
     block_number: BlockNumber,
     transaction_index: usize,
     cache_dir: &str,
-) -> CachedState<ExtendedStateReader> {
-    let url = rpc_url(chain_id);
-    CachedState::new(
-        ExtendedStateReader {
-            dict_state_reader: DictStateReader::default(),
-            fork_state_reader: ForkStateReader::new(
-                Url::parse(url).unwrap(),
-                block_number,
-                transaction_index,
-                cache_dir,
-            )
-            .ok(),
-        },
-        // GlobalContractCache::new(GLOBAL_CONTRACT_CACHE_SIZE_FOR_TEST),
-    )
+) -> Result<CachedState<ExtendedStateReader>, TransactionSimulationError> {
+    let fork_state_reader =
+        ForkStateReader::new(rpc_url, block_number, transaction_index, cache_dir)
+            .map_err(|e| TransactionSimulationError::TransactionIndexNotFound)?;
+    Ok(CachedState::new(ExtendedStateReader {
+        dict_state_reader: DictStateReader::default(),
+        fork_state_reader: Some(fork_state_reader),
+    }))
 }
 
 pub fn build_block_context(block_info: &BlockInfo) -> BlockContext {
