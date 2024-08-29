@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::{collections::HashMap, fs::File};
 use std::{env, fs};
-use tracing::error;
+use tracing::{error, info};
 
 pub fn create_files_from_map(
     source_code: &HashMap<String, String>,
@@ -117,11 +117,11 @@ pub async fn check_verification_status(
                     ));
             }
             EVerificationStatus::Failed => {
-                println!("Verification failed. You can start a new verification.");
+                info!("Verification failed. You can start a new verification.");
             }
         },
         None => {
-            println!("No existing verification status found. You can proceed with verification.");
+            info!("No existing verification status found. You can proceed with verification.");
         }
     }
 
