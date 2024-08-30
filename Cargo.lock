@@ -1975,6 +1975,7 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 [[package]]
 name = "cheatnet"
 version = "1.0.0"
+source = "git+https://github.com/walnuthq/starknet-foundry?rev=b4f08285c32838b15e0f35e25de55235c38baf35#b4f08285c32838b15e0f35e25de55235c38baf35"
 dependencies = [
  "anyhow",
  "bimap",
@@ -2162,6 +2163,7 @@ checksum = "21a53c0a4d288377e7415b53dcfc3c04da5cdc2cc95c8d5ac178b58f0b861ad6"
 [[package]]
 name = "conversions"
 version = "1.0.0"
+source = "git+https://github.com/walnuthq/starknet-foundry?rev=b4f08285c32838b15e0f35e25de55235c38baf35#b4f08285c32838b15e0f35e25de55235c38baf35"
 dependencies = [
  "anyhow",
  "blockifier",
@@ -4885,6 +4887,7 @@ dependencies = [
 [[package]]
 name = "runtime"
 version = "1.0.0"
+source = "git+https://github.com/walnuthq/starknet-foundry?rev=b4f08285c32838b15e0f35e25de55235c38baf35#b4f08285c32838b15e0f35e25de55235c38baf35"
 dependencies = [
  "anyhow",
  "blockifier",
@@ -5041,6 +5044,7 @@ dependencies = [
 [[package]]
 name = "scarb-api"
 version = "1.0.0"
+source = "git+https://github.com/walnuthq/starknet-foundry?rev=b4f08285c32838b15e0f35e25de55235c38baf35#b4f08285c32838b15e0f35e25de55235c38baf35"
 dependencies = [
  "anyhow",
  "camino",
@@ -5422,6 +5426,7 @@ dependencies = [
 [[package]]
 name = "shared"
 version = "0.1.0"
+source = "git+https://github.com/walnuthq/starknet-foundry?rev=b4f08285c32838b15e0f35e25de55235c38baf35#b4f08285c32838b15e0f35e25de55235c38baf35"
 dependencies = [
  "anyhow",
  "cairo-felt",
@@ -6776,6 +6781,7 @@ checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
 [[package]]
 name = "universal-sierra-compiler-api"
 version = "1.0.0"
+source = "git+https://github.com/walnuthq/starknet-foundry?rev=b4f08285c32838b15e0f35e25de55235c38baf35#b4f08285c32838b15e0f35e25de55235c38baf35"
 dependencies = [
  "anyhow",
  "cairo-lang-casm 2.6.3 (git+https://github.com/walnuthq/cairo?rev=e27ee4aa794331cabee4a22768fe99d837b489df)",
