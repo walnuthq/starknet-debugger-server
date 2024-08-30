@@ -2,7 +2,7 @@ use blockifier::{
     blockifier::block::BlockInfo,
     context::{BlockContext, ChainInfo},
     // state::cached_state::{CachedState, GlobalContractCache, GLOBAL_CONTRACT_CACHE_SIZE_FOR_TEST},
-    state::cached_state::CachedState,
+    state::{cached_state::CachedState, errors::StateError},
     transaction::transaction_types::TransactionType,
     versioned_constants::VersionedConstants,
 };
@@ -22,8 +22,9 @@ pub fn create_fork_cached_state_at(
     cache_dir: &str,
 ) -> Result<CachedState<ExtendedStateReader>, TransactionSimulationError> {
     let fork_state_reader =
-        ForkStateReader::new(rpc_url, block_number, transaction_index, cache_dir)
-            .map_err(|e| TransactionSimulationError::TransactionIndexNotFound)?;
+        ForkStateReader::new(rpc_url, block_number, transaction_index, cache_dir).map_err(|e| {
+            TransactionSimulationError::StateError(StateError::StateReadError(e.to_string()))
+        })?;
     Ok(CachedState::new(ExtendedStateReader {
         dict_state_reader: DictStateReader::default(),
         fork_state_reader: Some(fork_state_reader),

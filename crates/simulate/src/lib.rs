@@ -55,7 +55,9 @@ use starknet::core::types::ExecutionResult;
 use starknet::core::types::MaybePendingBlockWithTxs;
 use starknet::core::types::MaybePendingTransactionReceipt;
 use starknet::core::types::TransactionReceipt;
-use starknet::core::types::{DeclareTransaction, FieldElement, InvokeTransaction, Transaction};
+use starknet::core::types::{
+    DeclareTransaction, DeployAccountTransaction, FieldElement, InvokeTransaction, Transaction,
+};
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::JsonRpcClient;
 use starknet::providers::Provider;
@@ -316,10 +318,50 @@ fn match_transaction(tx: &Transaction, args: &SimulationArgs) -> bool {
                     && calldata == tx_v3.calldata
                     && nonce.as_ref().map_or(false, |n| *n == tx_v3.nonce)
             }
-            //TODO Add check for Declare transaction
             _ => false,
         },
-        _ => false,
+        Transaction::L1Handler(l1_handler_tx) => {
+            let version: StarkFelt = args.transaction_version.0;
+            let l1_hanler_version: StarkFelt = StarkFelt::from(l1_handler_tx.version);
+            let l1_handler_nonce: FieldElement = FieldElement::from(l1_handler_tx.nonce);
+            version == l1_hanler_version
+                && sender_address == l1_handler_tx.contract_address
+                && calldata == l1_handler_tx.calldata
+                && nonce.as_ref().map_or(false, |n| *n == l1_handler_nonce)
+        }
+        Transaction::Declare(declare_tx) => match (declare_tx, args.transaction_version.0) {
+            (DeclareTransaction::V0(tx_v0), version) if version == StarkFelt::ZERO => {
+                sender_address == tx_v0.sender_address
+            }
+            (DeclareTransaction::V1(tx_v1), version) if version == StarkFelt::ONE => {
+                sender_address == tx_v1.sender_address
+                    && nonce.as_ref().map_or(false, |n| *n == tx_v1.nonce)
+            }
+            (DeclareTransaction::V2(tx_v2), version) if version == StarkFelt::TWO => {
+                sender_address == tx_v2.sender_address
+                    && nonce.as_ref().map_or(false, |n| *n == tx_v2.nonce)
+            }
+            (DeclareTransaction::V3(tx_v3), version) if version == StarkFelt::THREE => {
+                sender_address == tx_v3.sender_address
+                    && nonce.as_ref().map_or(false, |n| *n == tx_v3.nonce)
+            }
+            _ => false,
+        },
+        Transaction::Deploy(deploy_tx) => {
+            let version: StarkFelt = args.transaction_version.0;
+            let deploy_version: StarkFelt = StarkFelt::from(deploy_tx.version);
+            version == deploy_version && calldata == deploy_tx.constructor_calldata
+        }
+        Transaction::DeployAccount(deploy_account_tx) => match deploy_account_tx {
+            DeployAccountTransaction::V1(tx_v1) => {
+                calldata == tx_v1.constructor_calldata
+                    && nonce.as_ref().map_or(false, |n| *n == tx_v1.nonce)
+            }
+            DeployAccountTransaction::V3(tx_v3) => {
+                calldata == tx_v3.constructor_calldata
+                    && nonce.as_ref().map_or(false, |n| *n == tx_v3.nonce)
+            }
+        },
     }
 }
 
