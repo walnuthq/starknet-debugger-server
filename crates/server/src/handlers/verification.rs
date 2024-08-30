@@ -12,6 +12,7 @@ use utoipa::ToSchema;
 use verification::verification::{verify_by_class_hash, verify_by_contract_address};
 use walnut_shared::{
     chain_id_to_readable_string, create_rpc_client, create_rpc_client_from_url, extract_chain_id,
+    pad_hex_string_to_66,
 };
 
 #[derive(Deserialize, Debug, Serialize, ToSchema)]
@@ -136,18 +137,20 @@ pub async fn verify_handler_with_rpc(
 
     let provider_client = create_rpc_client_from_url(rpc_url);
 
+    let class_hash = pad_hex_string_to_66(&payload.class_hash);
+
     match verify_by_class_hash(
         &state.db_pool,
         &state.s3_client,
         provider_client,
-        payload.class_hash.clone(),
+        class_hash.clone(),
         payload.class_name,
         payload.source_code,
         None,
         Some(project_id)
     ).await
     {
-        Ok(()) => (StatusCode::OK, format!("Class has been successfully verified. You can check the verification status at the following link: https://api.walnut.dev/v1/classes/{}.", payload.class_hash).to_string()),
+        Ok(()) => (StatusCode::OK, format!("Class has been successfully verified. You can check the verification status at the following link: https://api.walnut.dev/v1/classes/{}.", class_hash).to_string()),
         Err(e) => (StatusCode::BAD_REQUEST, e.to_string()),
     }
 }

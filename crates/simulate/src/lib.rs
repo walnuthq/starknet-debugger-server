@@ -1021,16 +1021,13 @@ pub fn enhance_call_trace_with_internal_trace_and_debugger_data(
                         Ok((internal_fn_call_trace, call_debugger_data)) => {
                             (Some(internal_fn_call_trace), Some(call_debugger_data))
                         }
-                        Err(_) => {
-                            println!("Failed to get internal fn call trace");
+                        Err(e) => {
+                            println!("Failed to get internal fn call trace: {:?}", e);
                             (None, None)
                         }
                     }
                 }
-                None => {
-                    println!("Failed to get internal fn call trace");
-                    (None, None)
-                }
+                None => (None, None),
             }
         }
         _ => {
