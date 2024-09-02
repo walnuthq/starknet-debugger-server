@@ -33,12 +33,7 @@ pub fn compile_with_sozo(
     tmp_dir: &PathBuf,
     class_name: String,
 ) -> Result<(ContractClass, Option<PathBuf>)> {
-    let is_arm64 = cfg!(target_arch = "aarch64");
-    let sozo_path = if is_arm64 {
-        "sozo/sozo_arm"
-    } else {
-        "sozo/sozo"
-    };
+    let sozo_path = "binaries/sozo/sozo";
 
     run_sozo_build(tmp_dir, sozo_path)?;
 

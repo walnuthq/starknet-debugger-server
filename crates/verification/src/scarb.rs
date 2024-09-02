@@ -44,31 +44,12 @@ pub fn compile_with_scarb(
     tmp_dir: &PathBuf,
     class_name: String,
 ) -> Result<(ContractClass, Option<PathBuf>)> {
-    let is_arm64 = cfg!(target_arch = "aarch64");
     match starknet_version {
         version if SUPPORTED_VERSIONS.contains(&version) => {
             let scarb_path = match version {
-                (2, 6, 3) => {
-                    if is_arm64 {
-                        "scarb/scarb_cairo_v_2_6_3_arm"
-                    } else {
-                        "scarb/scarb_cairo_v_2_6_3"
-                    }
-                }
-                (2, 6, 4) => {
-                    if is_arm64 {
-                        "scarb/scarb_cairo_v_2_6_4_arm"
-                    } else {
-                        "scarb/scarb_cairo_v_2_6_4"
-                    }
-                }
-                (2, 7, 0) => {
-                    if is_arm64 {
-                        "scarb/scarb_cairo_v_2_7_0_arm"
-                    } else {
-                        "scarb/scarb_cairo_v_2_7_0"
-                    }
-                }
+                (2, 6, 3) => "binaries/scarb/scarb_cairo_v_2_6_3",
+                (2, 6, 4) => "binaries/scarb/scarb_cairo_v_2_6_4",
+                (2, 7, 0) => "binaries/scarb/scarb_cairo_v_2_7_0",
                 _ => unreachable!(),
             };
             run_scarb_build(tmp_dir, scarb_path)?;
