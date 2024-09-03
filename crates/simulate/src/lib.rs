@@ -84,6 +84,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::usize;
 use thiserror::Error;
+use tracing::error;
 use url::Url;
 use utils::transaction_type_to_string;
 use walnut_shared::chain_id_to_readable_string;

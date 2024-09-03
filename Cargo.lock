@@ -5521,6 +5521,7 @@ dependencies = [
  "starknet_api",
  "thiserror",
  "tokio",
+ "tracing",
  "url",
  "walnut-shared",
 ]
