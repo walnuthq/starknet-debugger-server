@@ -1122,7 +1122,7 @@ pub fn enhance_call_trace_with_internal_trace_and_debugger_data(
                             (Some(internal_fn_call_trace), Some(call_debugger_data))
                         }
                         Err(e) => {
-                            println!("Failed to get internal fn call trace: {:?}", e);
+                            error!("Failed to get internal fn call trace: {:?}", e);
                             (None, None)
                         }
                     }
@@ -1131,7 +1131,7 @@ pub fn enhance_call_trace_with_internal_trace_and_debugger_data(
             }
         }
         _ => {
-            println!("Not enough data to get internal fn call trace");
+            error!("Not enough data to get internal fn call trace");
             (None, None)
         }
     };
