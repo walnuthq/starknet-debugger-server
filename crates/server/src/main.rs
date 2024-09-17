@@ -38,6 +38,8 @@ use crate::handlers::{
     verification::{get_verification_status_handler, verify_handler_with_rpc},
 };
 
+use sentry;
+
 // Resources
 // https://github.com/tokio-rs/axum/tree/main/examples
 // https://crates.io/crates/redis-macros
@@ -142,6 +144,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .with(tracing_subscriber::fmt::layer().json())
         .init();
+
+    let _guard = sentry::init(("https://ae2d01aafee9ea77f4090092df5a6a42@o4507958254436352.ingest.us.sentry.io/4507961681838080", sentry::ClientOptions {
+        release: sentry::release_name!(),
+        ..Default::default()
+        }));
 
     let redis_addr = std::env::var("REDIS_ADDR").unwrap_or("redis://127.0.0.1/".to_string());
     let db_addr = std::env::var("DATABASE_URL").unwrap_or("postgres://".to_string());

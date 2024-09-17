@@ -18,6 +18,10 @@ use walnut_shared::{
     pad_hex_string_to_66,
 };
 
+use sentry;
+use sentry::Level;
+
+
 #[derive(Deserialize, Debug, Serialize, ToSchema)]
 pub struct VerificationStatusResponse {
     pub status: String,
@@ -127,7 +131,15 @@ pub async fn verify_handler(
 ) -> Response {
     let chain_id = match extract_chain_id(chain_id.as_str()) {
         Ok(chain_id) => chain_id,
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response(),
+        Err(e) => {
+            sentry::configure_scope(|scope| {
+                scope.set_tag("verification_status", "failed");
+                scope.set_extra("error", e.to_string().into());
+            });
+            sentry::capture_message("Failed to extract chain ID", Level::Error);
+            
+            return (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response();
+        }
     };
     let chain_id_readable_string = chain_id_to_readable_string(&chain_id);
     let provider_client = create_rpc_client(&chain_id);
@@ -144,13 +156,28 @@ pub async fn verify_handler(
     .await
     {
         Ok(verification_status_id) => {
+
+            sentry::configure_scope(|scope| {
+                scope.set_tag("verification_status", "successful");
+            });
+            sentry::capture_message("Verification started successfully", Level::Info);
+
             let response_message = format!(
                 "Contract verification has started. You can check the verification status at the following link: https://api.walnut.dev/v1/verification/{}/status .",
                 verification_status_id
             );
             (StatusCode::OK, Json(response_message)).into_response()
         }
-        Err(e) => (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response(),
+        Err(e) => {
+
+            sentry::configure_scope(|scope| {
+                scope.set_tag("verification_status", "failed");
+                scope.set_extra("error", e.to_string().into());
+            });
+            sentry::capture_message("Verification failed", Level::Error);
+            
+            (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response()
+        }
     }
 }
 
@@ -210,17 +237,44 @@ pub async fn verify_handler_with_rpc(
 ) -> Response {
     let api_key = match get_api_token(&headers) {
         Ok(token) => token,
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response(),
+        Err(e) => {
+        
+        sentry::configure_scope(|scope| {
+            scope.set_tag("verification_status", "failed");
+            scope.set_extra("error", e.to_string().into());
+        });
+        sentry::capture_message("Failed to retrieve API token", Level::Error);
+        
+        return (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response();
+        }
     };
 
     let project_id = match check_api_key(&api_key) {
         Ok(project_id) => project_id,
-        Err(e) => return (StatusCode::UNAUTHORIZED, Json(e.to_string())).into_response(),
+        Err(e) => {
+
+            sentry::configure_scope(|scope| {
+                scope.set_tag("verification_status", "failed");
+                scope.set_extra("error", e.to_string().into());
+            });
+            sentry::capture_message("Unauthorized: Invalid API key", Level::Error);            
+
+            return (StatusCode::UNAUTHORIZED, Json(e.to_string())).into_response();
+        }
     };
 
     let rpc_url = match Url::parse(&payload.rpc_url) {
         Ok(url) => url,
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response(),
+        Err(e) => {
+            
+            sentry::configure_scope(|scope| {
+                scope.set_tag("verification_status", "failed");
+                scope.set_extra("error", e.to_string().into());
+            });
+            sentry::capture_message("Failed to parse RPC URL", Level::Error);
+
+            return (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response();
+        }
     };
 
     let provider_client = create_rpc_client_from_url(rpc_url);
@@ -242,12 +296,33 @@ pub async fn verify_handler_with_rpc(
     .await
     {
         Ok(verification_status_id) => {
+
+            sentry::configure_scope(|scope| {
+                scope.set_tag("verification_status", "successful");
+                let mut project_info = std::collections::BTreeMap::new();
+                project_info.insert("project_id".to_string(), project_id.into());
+                scope.set_context("project_info", sentry::protocol::Context::Other(project_info));
+            });
+            sentry::capture_message("Verification started successfully", Level::Info);
+
             let response_message = format!(
                 "Contract verification has started. You can check the verification status at the following link: https://api.walnut.dev/v1/verification/{}/status .",
                 verification_status_id
             );
             (StatusCode::OK, Json(response_message)).into_response()
         }
-        Err(e) => (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response(),
+        Err(e) => {
+            
+            sentry::configure_scope(|scope| {
+                scope.set_tag("verification_status", "failed");
+                let mut project_info = std::collections::BTreeMap::new();
+                project_info.insert("project_id".to_string(), project_id.into());
+                scope.set_context("project_info", sentry::protocol::Context::Other(project_info));
+                scope.set_extra("error", e.to_string().into());
+            });
+            sentry::capture_message("Verification failed", Level::Error);
+
+            (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response()
+        }
     }
 }

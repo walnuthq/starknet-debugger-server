@@ -43,3 +43,4 @@ walnut-shared.workspace = true
 verification.workspace = true
 aws-sdk-s3.workspace = true
 aws-config.workspace = true
+sentry = "0.34.0"
