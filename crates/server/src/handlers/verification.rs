@@ -152,7 +152,7 @@ pub async fn verify_handler(
             sentry::capture_message("Verification started successfully", Level::Info);
 
             let response_message = format!(
-                "Contract verification has started. You can check the verification status at the following link: https://api.walnut.dev/v1/verification/{}/status .",
+                "Contract verification has started. You can check the verification status at the following link: https://app.walnut.dev/verification/status/{}",
                 verification_status_id
             );
             (StatusCode::OK, Json(response_message)).into_response()
@@ -324,7 +324,7 @@ pub async fn verify_handler_with_rpc(
             sentry::capture_message("Verification started successfully", Level::Info);
 
             let response_message = format!(
-                "Contract verification has started. You can check the verification status at the following link: https://api.walnut.dev/v1/verification/{}/status .",
+                "Contract verification has started. You can check the verification status at the following link: https://app.walnut.dev/verification/status/{}",
                 verification_status_id
             );
             (StatusCode::OK, Json(response_message)).into_response()
