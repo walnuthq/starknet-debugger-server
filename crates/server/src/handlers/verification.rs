@@ -185,7 +185,7 @@ pub struct VerificationPayloadWithRpc {
         content_type = "application/json"
     ),
     responses(
-        (status = 200, description = "Class successfully verified", body = String),
+        (status = 200, description = "Class verification has started", body = String),
         (status = 400, description = "An error occurred during verification; an error message will be returned", body = String)
     ),
     params(
