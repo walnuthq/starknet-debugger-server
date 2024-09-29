@@ -37,3 +37,4 @@ aws-smithy-types.workspace = true
 hex.workspace = true
 tracing.workspace = true
 walkdir.workspace = true
+sentry = "0.24"

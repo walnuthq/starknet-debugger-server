@@ -164,7 +164,30 @@ pub async fn initiate_verification(
         .execute(db_pool)
         .await
         .context("Failed to insert verification status entry")?;
+
+        sentry::with_scope(|scope| {
+            scope.set_tag("verification_status",status.to_string());
+            scope.set_tag("class_hash", class_hash.clone());
+            scope.set_tag("verification_id", verification_status_id.to_string());
+            scope.set_tag("project_id", project_id.unwrap_or_default().to_string());
+            scope.set_tag("chain_id", chain_id.clone().unwrap_or_default());
+
+            scope.set_extra("error", message.clone().unwrap_or_default().into());
+        }, || {
+            match status {
+                EVerificationStatus::Pending => {
+
+                }
+                EVerificationStatus::Success => {
+                    sentry::capture_message("Verification succeeded", sentry::Level::Info);
+                }
+                EVerificationStatus::Failed => {
+                    sentry::capture_message("Verification failed", sentry::Level::Error);
+                }
+            }
+        });
     }
+
 
     // Sort the classes to verify
     let pending_classes: Vec<(String, String)> = class_status_map
@@ -191,6 +214,8 @@ pub async fn initiate_verification(
     let db_pool_clone = db_pool.clone();
     let s3_client_clone = s3_client.clone();
     let chain_id_clone = chain_id.clone();
+
+    let chain_id_clone_2 = chain_id_clone.clone();
 
     tokio::spawn(async move {
         match verify_by_class_hashes(
@@ -219,6 +244,26 @@ pub async fn initiate_verification(
                     )
                     .execute(&db_pool_clone)
                     .await;
+
+                     sentry::with_scope(|scope| {
+                        scope.set_tag("verification_status",status.to_string());
+                        scope.set_tag("class_hash", class_hash.clone());
+                        scope.set_tag("verification_id", verification_status_id.to_string());
+                        scope.set_tag("project_id", project_id.unwrap_or_default().to_string());
+                        scope.set_tag("chain_id", chain_id_clone_2.clone().unwrap_or_default());
+
+                        scope.set_extra("error", message.clone().unwrap_or_default().into());
+                    }, || {
+                        match status {
+                            EVerificationStatus::Success => {
+                                sentry::capture_message("Verification succeeded", sentry::Level::Info);
+                            }
+                            EVerificationStatus::Failed => {
+                                sentry::capture_message("Verification failed", sentry::Level::Error);
+                            }
+                            EVerificationStatus::Pending => {}
+                        }
+                    });
                 }
             }
             Err(e) => {
@@ -234,6 +279,15 @@ pub async fn initiate_verification(
                 )
                 .execute(&db_pool_clone)
                 .await;
+
+                sentry::configure_scope(|scope| {
+                    scope.set_tag("verification_status", "failed");
+                    scope.set_tag("verification_id", verification_status_id.to_string());
+
+                    scope.set_extra("error", e.to_string().into());
+                });
+
+                sentry::capture_message("Verification failed", sentry::Level::Error);
             }
         }
     });
