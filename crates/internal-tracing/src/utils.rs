@@ -29,7 +29,6 @@ pub fn compile_sierra_contract_class(
     contract_class: ContractClass,
     max_bytecode_size: usize,
 ) -> Result<CairoProgram> {
-    println!("Starting compile_sierra_contract_class");
     let (sierra_version, _, program) = sierra_from_felt252s(&contract_class.sierra_program)
         .map_err(|e| anyhow::anyhow!("Failed to parse Sierra program: {:?}", e))?;
 
