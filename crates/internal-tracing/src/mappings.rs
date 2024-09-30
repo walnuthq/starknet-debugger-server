@@ -20,6 +20,7 @@ use cairo_lang_starknet_classes::contract_class::ContractClass;
 use cairo_vm::vm::trace::trace_entry::RelocatedTraceEntry;
 use indexmap::IndexSet;
 use num_bigint::BigInt;
+use num_traits::cast::ToPrimitive;
 use smol_str::SmolStr;
 use std::collections::{HashMap, HashSet};
 use verification::{CodeLocation, SierraStatementToCairoDebugInfo};
@@ -417,10 +418,12 @@ pub fn get_value_from_cell_expression(
         CellExpression::DoubleDeref(cell_ref, offset) => {
             match get_cell_ref_value(memory, trace_entry, cell_ref, ap_change) {
                 Ok(cell_ref_value_felt) => {
-                    let cell_ref_value_bytes_le = cell_ref_value_felt.to_bytes_be();
-                    let cell_ref_value = LittleEndian::read_u128(
-                        &extend_to_16_bytes(cell_ref_value_bytes_le.to_vec())[..],
-                    ) as i128;
+                    let cell_ref_value =
+                        cell_ref_value_felt
+                            .to_i128()
+                            .ok_or(GetCellRefValueError::OtherError(
+                                "Failed to convert cell_ref_value_felt to i128".to_string(),
+                            ))?;
                     let addr = cell_ref_value + offset.clone() as i128;
                     let value = memory.get(addr as usize).cloned();
                     if let Some(Some(value)) = value {
