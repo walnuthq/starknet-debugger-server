@@ -172,11 +172,11 @@ pub async fn initiate_verification(
             scope.set_tag("project_id", project_id.unwrap_or_default().to_string());
             scope.set_tag("chain_id", chain_id.clone().unwrap_or_default());
 
-            scope.set_extra("error", message.clone().unwrap_or_default().into());
+            scope.set_extra("message", message.clone().unwrap_or_default().into());
         }, || {
             match status {
                 EVerificationStatus::Pending => {
-
+                    sentry::capture_message("Verification started", sentry::Level::Info);
                 }
                 EVerificationStatus::Success => {
                     sentry::capture_message("Verification succeeded", sentry::Level::Info);
@@ -252,7 +252,7 @@ pub async fn initiate_verification(
                         scope.set_tag("project_id", project_id.unwrap_or_default().to_string());
                         scope.set_tag("chain_id", chain_id_clone_2.clone().unwrap_or_default());
 
-                        scope.set_extra("error", message.clone().unwrap_or_default().into());
+                        scope.set_extra("message", message.clone().unwrap_or_default().into());
                     }, || {
                         match status {
                             EVerificationStatus::Success => {
@@ -280,14 +280,15 @@ pub async fn initiate_verification(
                 .execute(&db_pool_clone)
                 .await;
 
-                sentry::configure_scope(|scope| {
-                    scope.set_tag("verification_status", "failed");
-                    scope.set_tag("verification_id", verification_status_id.to_string());
-
-                    scope.set_extra("error", e.to_string().into());
-                });
-
-                sentry::capture_message("Verification failed", sentry::Level::Error);
+                for class_hash in &pending_class_hashes{
+                    sentry::configure_scope(|scope| {
+                        scope.set_tag("verification_status", "failed");
+                        scope.set_tag("verification_id", verification_status_id.to_string());
+                        scope.set_tag("class_hash", class_hash.clone());
+                        scope.set_extra("error", e.to_string().into());
+                    });
+                    sentry::capture_message("Verification failed", sentry::Level::Error);
+                }
             }
         }
     });

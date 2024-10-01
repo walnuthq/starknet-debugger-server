@@ -132,13 +132,6 @@ pub async fn verify_handler(
     };
     let chain_id_readable_string = chain_id_to_readable_string(&chain_id);
     let provider_client = create_rpc_client(&chain_id);
-
-    sentry::configure_scope(|scope| {
-        scope.set_tag("verification_status", "started");
-        scope.set_extra("class_hash", payload.contract_address.clone().into());
-    });
-    sentry::capture_message("Verification started", Level::Info);
-
     let contract_address_clone = payload.contract_address.clone();
 
     match verify_by_contract_address(
@@ -154,14 +147,6 @@ pub async fn verify_handler(
     .await
     {
         Ok(verification_status_id) => {
-
-            sentry::configure_scope(|scope| {
-                scope.set_tag("verification_status", "successful");
-                scope.set_extra("verification_id", verification_status_id.to_string().into());
-                scope.set_extra("contract_address", contract_address_clone.into());
-            });
-            sentry::capture_message("Verification started.", Level::Info);
-
             let response_message = format!(
                 "Contract verification has started. You can check the verification status at the following link: https://app.walnut.dev/verification/status/{}",
                 verification_status_id
@@ -314,17 +299,6 @@ pub async fn verify_handler_with_rpc(
 
     let source_code = payload.source_code.clone();
 
-    sentry::configure_scope(|scope| {
-        scope.set_tag("verification_status", "started");
-        if let Some(ref class_hashes) = payload.class_hashes {
-            scope.set_extra("class_hash", class_hashes.join(",").into());
-        } else if let Some(ref class_hash) = payload.class_hash {
-            scope.set_extra("class_hash", class_hash.clone().into());
-        }
-        scope.set_extra("project_id", project_id.into());
-    });
-    sentry::capture_message("Verification started", Level::Info);
-
     match initiate_verification(
         &state.db_pool,
         &state.s3_client,
@@ -338,14 +312,6 @@ pub async fn verify_handler_with_rpc(
     .await
     {
         Ok(verification_status_id) => {
-
-            sentry::configure_scope(|scope| {
-                scope.set_tag("verification_status", "successful");
-                scope.set_extra("verification_id", verification_status_id.to_string().into());
-                scope.set_extra("project_id", project_id.into());
-            });
-            sentry::capture_message("Verification started", Level::Info);
-
             let response_message = format!(
                 "Contract verification has started. You can check the verification status at the following link: https://app.walnut.dev/verification/status/{}",
                 verification_status_id
