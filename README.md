@@ -52,7 +52,7 @@ If you need to change ports, modify `db-docker-compose.yaml` file. If anything c
 2. Build and run the server
 ```
 cp .env.example .env
-rustup override set 1.80.0
 cargo run --bin server
 ```
-It will listen on `localhost:3000`.
+Rust version is specified in `rust-toolchain.toml` file.
+Server will listen on `localhost:3000`.
