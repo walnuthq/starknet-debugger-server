@@ -38,3 +38,21 @@ docker push 414942293597.dkr.ecr.us-east-1.amazonaws.com/walnut-server-pipeline:
 - Select `WalnutServer-east-1`
 - Click `Create new revision`
 - Keep the default config and just click Create
+
+# Local setup (development)
+1. Start Postgres
+Assure you have `Docker` installed and running (with `docker compose` support).
+```
+cd scripts
+./start-db-local.sh
+```
+Postgres will run on `localhost:1234`.
+If you need to change ports, modify `db-docker-compose.yaml` file. If anything changes, assure to update `.env` file with the new values.
+
+2. Build and run the server
+```
+cp .env.example .env
+rustup override set 1.80.0
+cargo run --bin server
+```
+It will listen on `localhost:3000`.
