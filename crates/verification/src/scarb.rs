@@ -47,7 +47,6 @@ pub fn compile_with_scarb(
     tmp_dir: &PathBuf,
     class_verification_data: &mut ClassVerificationData,
 ) -> Result<()> {
-
     if !SUPPORTED_CAIRO_VERSIONS.contains(&starknet_version) {
         error!(
             "Unsupported Cairo version {}.{}.{}",
@@ -64,7 +63,6 @@ pub fn compile_with_scarb(
         starknet_version.0, starknet_version.1, starknet_version.2
     );
     run_scarb_build(tmp_dir, &scarb_path)?;
-
 
     for (class_hash, class_result) in class_verification_data.iter_mut() {
         let (class_name, _, _, _, _, _) = match class_result.as_ref() {
@@ -105,7 +103,6 @@ pub fn compile_with_scarb(
 
         let cairo_debug_info_path: Option<PathBuf> = match starknet_version {
             version if SUPPORTED_CAIRO_VERSIONS.contains(&version) => {
-
                 Some(tmp_dir.join("target/dev").join(format!(
                     "{}_{}.contract_class_debug.json",
                     manifest.package_name, class_name

@@ -168,17 +168,18 @@ pub async fn initiate_verification(
         .execute(db_pool)
         .await
         .context("Failed to insert verification status entry")?;
-      
-        sentry::with_scope(|scope| {
-            scope.set_tag("verification_status",status.to_string());
-            scope.set_tag("class_hash", class_hash.clone());
-            scope.set_tag("verification_id", verification_status_id.to_string());
-            scope.set_tag("project_id", project_id.unwrap_or_default().to_string());
-            scope.set_tag("chain_id", chain_id.clone().unwrap_or_default());
 
-            scope.set_extra("message", message.clone().unwrap_or_default().into());
-        }, || {
-            match status {
+        sentry::with_scope(
+            |scope| {
+                scope.set_tag("verification_status", status.to_string());
+                scope.set_tag("class_hash", class_hash.clone());
+                scope.set_tag("verification_id", verification_status_id.to_string());
+                scope.set_tag("project_id", project_id.unwrap_or_default().to_string());
+                scope.set_tag("chain_id", chain_id.clone().unwrap_or_default());
+
+                scope.set_extra("message", message.clone().unwrap_or_default().into());
+            },
+            || match status {
                 EVerificationStatus::Pending => {
                     sentry::capture_message("Verification started", sentry::Level::Info);
                 }
@@ -188,8 +189,8 @@ pub async fn initiate_verification(
                 EVerificationStatus::Failed => {
                     sentry::capture_message("Verification failed", sentry::Level::Error);
                 }
-            }
-        });
+            },
+        );
     }
 
     // Sort the classes to verify
@@ -248,26 +249,32 @@ pub async fn initiate_verification(
                     .execute(&db_pool_clone)
                     .await;
 
-                     sentry::with_scope(|scope| {
-                        scope.set_tag("verification_status",status.to_string());
-                        scope.set_tag("class_hash", class_hash.clone());
-                        scope.set_tag("verification_id", verification_status_id.to_string());
-                        scope.set_tag("project_id", project_id.unwrap_or_default().to_string());
-                        scope.set_tag("chain_id", chain_id_clone_2.clone().unwrap_or_default());
+                    sentry::with_scope(
+                        |scope| {
+                            scope.set_tag("verification_status", status.to_string());
+                            scope.set_tag("class_hash", class_hash.clone());
+                            scope.set_tag("verification_id", verification_status_id.to_string());
+                            scope.set_tag("project_id", project_id.unwrap_or_default().to_string());
+                            scope.set_tag("chain_id", chain_id_clone_2.clone().unwrap_or_default());
 
-                        scope.set_extra("message", message.clone().unwrap_or_default().into());
-                    }, || {
-                        match status {
+                            scope.set_extra("message", message.clone().unwrap_or_default().into());
+                        },
+                        || match status {
                             EVerificationStatus::Success => {
-                                sentry::capture_message("Verification succeeded", sentry::Level::Info);
+                                sentry::capture_message(
+                                    "Verification succeeded",
+                                    sentry::Level::Info,
+                                );
                             }
                             EVerificationStatus::Failed => {
-                                sentry::capture_message("Verification failed", sentry::Level::Error);
+                                sentry::capture_message(
+                                    "Verification failed",
+                                    sentry::Level::Error,
+                                );
                             }
                             EVerificationStatus::Pending => {}
-                        }
-                    });
-
+                        },
+                    );
                 }
             }
             Err(e) => {
@@ -284,7 +291,7 @@ pub async fn initiate_verification(
                 .execute(&db_pool_clone)
                 .await;
 
-                for class_hash in &pending_class_hashes{
+                for class_hash in &pending_class_hashes {
                     sentry::configure_scope(|scope| {
                         scope.set_tag("verification_status", "failed");
                         scope.set_tag("verification_id", verification_status_id.to_string());
@@ -293,7 +300,6 @@ pub async fn initiate_verification(
                     });
                     sentry::capture_message("Verification failed", sentry::Level::Error);
                 }
-
             }
         }
     });
@@ -319,7 +325,6 @@ pub async fn verify_by_class_hashes(
     fs::remove_dir_all(&tmp_dir)?;
 
     let class_verification_data: ClassVerificationData = class_verification_data?;
-
 
     let mut class_status_map: HashMap<String, (EVerificationStatus, Option<String>)> =
         HashMap::new();
@@ -374,7 +379,6 @@ pub async fn verify_by_class_hashes(
 async fn fetch_class_from_blockchain(
     provider_client: &JsonRpcClient<HttpTransport>,
     class_hash: &str,
-
 ) -> Result<(Vec<Felt>, (u32, u32, u32))> {
     let class_from_blockchain = provider_client
         .get_class(
@@ -386,12 +390,10 @@ async fn fetch_class_from_blockchain(
         .await
         .context("Failed to get class from the network")?;
 
-
     let class_json = serde_json::to_value(&class_from_blockchain)
         .context("Failed to serialize class from blockchain to JSON value")?;
     let class_from_blockchain: CoreContractClass = serde_json::from_value(class_json)
         .context("Failed to deserialize class from JSON value back to CoreContractClass")?;
-
 
     let program_from_blockchain = match &class_from_blockchain {
         CoreContractClass::Sierra(flattened_sierra_class) => {
