@@ -37,7 +37,8 @@ pub struct DebuggerExecutionTraceEntryWithLocation {
     pub location_index: usize,
     pub results: Vec<InternalFnCallIO>,
     pub arguments: Vec<InternalFnCallIO>,
-    pub function_id: Option<String>,
+    pub fn_call_id: Option<String>,
+    pub fp: usize,
 }
 
 pub fn get_internal_call_trace(
@@ -96,8 +97,6 @@ pub fn get_internal_call_trace(
     let mut contract_call_index = 0;
 
     for (i, trace_entry) in vm_trace.iter().enumerate() {
-        let new_fp = trace_entry.fp;
-
         // Active Sierra indexes at the current step
         let sierra_indexes = mappings.get_sierra_indexes_at_pc(&trace_entry.pc);
         let first_sierra_index = sierra_indexes
@@ -121,7 +120,7 @@ pub fn get_internal_call_trace(
         let mut results: Vec<InternalFnCallIO> = Vec::new();
         // Contract Call at current step (can be empty)
 
-        if new_fp > prev_fp {
+        if trace_entry.fp > prev_fp {
             // If the FP register increases, that means we have entered a nested function call
             let function =
                 first_sierra_index.and_then(|si| mappings.get_sierra_function_at_sierra_index(&si));
@@ -140,11 +139,11 @@ pub fn get_internal_call_trace(
             };
 
             let call_entry = InternalFnCallTraceEntry {
-                id: get_internal_function_call_id(&parent_contract_call_id, new_fp),
+                id: get_internal_function_call_id(&parent_contract_call_id, trace_entry.fp),
                 fn_name: function
                     .and_then(|f| f.id.debug_name.clone())
                     .and_then(|n| Some(n.to_string())),
-                fp: new_fp,
+                fp: trace_entry.fp,
                 cairo_location: cairo_locations.first().cloned(),
                 arguments: arguments.clone(),
                 results: Vec::new(),
@@ -155,7 +154,7 @@ pub fn get_internal_call_trace(
 
             // Add the nested call and set it as the current node
             tree.enter_nested_call(call_entry);
-        } else if new_fp < prev_fp {
+        } else if trace_entry.fp < prev_fp {
             // If the FP register decreases, that means we have exited the function call
             let prev_trace_entry = &vm_trace[i - 1];
             let prev_sierra_index = mappings.get_first_sierra_index_at_pc(&prev_trace_entry.pc);
@@ -181,8 +180,9 @@ pub fn get_internal_call_trace(
                 }
             }
         }
-        prev_fp = trace_entry.fp;
-        let parent_function_id = get_internal_function_call_id(&parent_contract_call_id, prev_fp);
+
+        let parent_function_call_id =
+            get_internal_function_call_id(&parent_contract_call_id, trace_entry.fp);
 
         if let Some(sierra_indexes) = sierra_indexes {
             for sierra_index in sierra_indexes {
@@ -203,7 +203,8 @@ pub fn get_internal_call_trace(
                                 results: results.clone(),
                                 arguments: arguments.clone(),
                                 location_index,
-                                function_id: Some(parent_function_id.clone()),
+                                fn_call_id: Some(parent_function_call_id.clone()),
+                                fp: trace_entry.fp,
                             },
                         ));
                         // If current step has the same Cairo location as the last step with Cairo location
@@ -218,7 +219,8 @@ pub fn get_internal_call_trace(
                             )) = debugger_execution_trace.iter_mut().rev().find(|entry| {
                                 matches!(entry, DebuggerExecutionTraceEntry::WithLocation(_))
                             }) {
-                                last_with_location.function_id = Some(parent_function_id.clone());
+                                last_with_location.fn_call_id =
+                                    Some(parent_function_call_id.clone());
                                 last_with_location.results = results.clone();
                                 last_with_location.arguments = arguments.clone();
                             }
@@ -231,7 +233,8 @@ pub fn get_internal_call_trace(
                                 results: results.clone(),
                                 arguments: arguments.clone(),
                                 location_index,
-                                function_id: Some(parent_function_id.clone()),
+                                fn_call_id: Some(parent_function_call_id.clone()),
+                                fp: trace_entry.fp,
                             },
                         ));
                     }
@@ -258,6 +261,8 @@ pub fn get_internal_call_trace(
             }
             None => {}
         }
+
+        prev_fp = trace_entry.fp;
     }
 
     tree.set_deepest_panic_result();
