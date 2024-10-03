@@ -23,8 +23,6 @@ futures.workspace = true
 calldata-decoder.workspace = true
 reqwest.workspace = true
 starknet-selector-decoder.workspace = true
-cairo-felt.workspace = true
-
 anyhow.workspace = true
 uuid.workspace = true
 time.workspace = true
@@ -38,3 +36,5 @@ hex.workspace = true
 tracing.workspace = true
 walkdir.workspace = true
 sentry = "0.24"
+starknet-providers.workspace = true
+starknet-old.workspace = true
