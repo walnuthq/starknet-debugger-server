@@ -36,26 +36,6 @@ type ClassVerificationData = HashMap<
     )>,
 >;
 
-/// The key is a `String` representing the class hash.
-/// The value is a `Result` containing a tuple with the following elements:
-/// - `String`: The class name.
-/// - `Vec<FieldElement>`: The program from the network.
-/// - `(u32, u32, u32)`: The Cairo version from the network.
-/// - `Option<ContractClass>`: The Sierra contract class compiled from the source code.
-/// - `Option<PathBuf>`: The path to the debug info file compiled from the source code.
-/// - `Option<SierraToCairoDebugInfo>`: The Cairo debug info compiled from the source code.
-type ClassVerificationData = HashMap<
-    String,
-    Result<(
-        String,
-        Vec<FieldElement>,
-        (u32, u32, u32),
-        Option<ContractClass>,
-        Option<PathBuf>,
-        Option<SierraToCairoDebugInfo>,
-    )>,
->;
-
 #[derive(Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[sqlx(type_name = "verification_status", rename_all = "lowercase")] // Assuming PostgreSQL
 pub enum EVerificationStatus {
