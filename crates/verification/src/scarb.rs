@@ -48,12 +48,9 @@ pub fn compile_with_scarb(
     class_verification_data: &mut ClassVerificationData,
 ) -> Result<()> {
     if !SUPPORTED_CAIRO_VERSIONS.contains(&starknet_version) {
-        error!(
-            "Unsupported Cairo version {}.{}.{}",
-            starknet_version.0, starknet_version.1, starknet_version.2
-        );
         return Err(anyhow::anyhow!(
-            "Unsupported Cairo version. Currently, we support versions {}. Contact us if you need support for a different version: https://t.me/walnuthq",
+            "Unsupported Cairo version {}.{}.{}. Currently, we support versions {}. Contact us if you need support for a different version: https://t.me/walnuthq",
+            starknet_version.0, starknet_version.1, starknet_version.2,
             get_supported_cairo_versions()
         ));
     }

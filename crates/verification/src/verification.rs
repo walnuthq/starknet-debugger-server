@@ -11,7 +11,7 @@ use std::io::BufReader;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::{collections::HashMap, fs::File};
-use tracing::error;
+use tracing::{error, info};
 use uuid::Uuid;
 use walnut_shared::{felt_to_field_element, field_element_to_felt};
 
@@ -169,28 +169,40 @@ pub async fn initiate_verification(
         .await
         .context("Failed to insert verification status entry")?;
 
-        sentry::with_scope(
-            |scope| {
-                scope.set_tag("verification_status", status.to_string());
-                scope.set_tag("class_hash", class_hash.clone());
-                scope.set_tag("verification_id", verification_status_id.to_string());
-                scope.set_tag("project_id", project_id.unwrap_or_default().to_string());
-                scope.set_tag("chain_id", chain_id.clone().unwrap_or_default());
-
-                scope.set_extra("message", message.clone().unwrap_or_default().into());
-            },
-            || match status {
-                EVerificationStatus::Pending => {
-                    sentry::capture_message("Verification started", sentry::Level::Info);
-                }
-                EVerificationStatus::Success => {
-                    sentry::capture_message("Verification succeeded", sentry::Level::Info);
-                }
-                EVerificationStatus::Failed => {
-                    sentry::capture_message("Verification failed", sentry::Level::Error);
-                }
-            },
-        );
+        match status {
+            EVerificationStatus::Pending => {
+                info!(
+                    class_hash = class_hash,
+                    verification_id = verification_status_id.to_string(),
+                    project_id = project_id,
+                    chain_id = chain_id,
+                    tags.verification_status = "pending",
+                    "Verification is pending",
+                );
+            }
+            EVerificationStatus::Success => {
+                info!(
+                    class_hash = class_hash,
+                    verification_id = verification_status_id.to_string(),
+                    project_id = project_id,
+                    chain_id = chain_id,
+                    tags.verification_status = "success",
+                    message = message,
+                    "Verification succeeded",
+                );
+            }
+            EVerificationStatus::Failed => {
+                error!(
+                    class_hash = class_hash,
+                    verification_id = verification_status_id.to_string(),
+                    project_id = project_id,
+                    chain_id = chain_id,
+                    tags.verification_status = "failed",
+                    "Verification failed: {}",
+                    message.clone().unwrap_or_default()
+                );
+            }
+        };
     }
 
     // Sort the classes to verify
@@ -218,8 +230,6 @@ pub async fn initiate_verification(
     let db_pool_clone = db_pool.clone();
     let s3_client_clone = s3_client.clone();
     let chain_id_clone = chain_id.clone();
-
-    let chain_id_clone_2 = chain_id_clone.clone();
 
     tokio::spawn(async move {
         match verify_by_class_hashes(
@@ -249,32 +259,33 @@ pub async fn initiate_verification(
                     .execute(&db_pool_clone)
                     .await;
 
-                    sentry::with_scope(
-                        |scope| {
-                            scope.set_tag("verification_status", status.to_string());
-                            scope.set_tag("class_hash", class_hash.clone());
-                            scope.set_tag("verification_id", verification_status_id.to_string());
-                            scope.set_tag("project_id", project_id.unwrap_or_default().to_string());
-                            scope.set_tag("chain_id", chain_id_clone_2.clone().unwrap_or_default());
-
-                            scope.set_extra("message", message.clone().unwrap_or_default().into());
-                        },
-                        || match status {
-                            EVerificationStatus::Success => {
-                                sentry::capture_message(
-                                    "Verification succeeded",
-                                    sentry::Level::Info,
-                                );
-                            }
-                            EVerificationStatus::Failed => {
-                                sentry::capture_message(
-                                    "Verification failed",
-                                    sentry::Level::Error,
-                                );
-                            }
-                            EVerificationStatus::Pending => {}
-                        },
-                    );
+                    match status {
+                        EVerificationStatus::Pending => {
+                            unreachable!();
+                        }
+                        EVerificationStatus::Success => {
+                            info!(
+                                class_hash = class_hash,
+                                verification_id = verification_status_id.to_string(),
+                                project_id = project_id,
+                                chain_id = chain_id,
+                                tags.verification_status = "success",
+                                message = message,
+                                "Verification succeeded",
+                            );
+                        }
+                        EVerificationStatus::Failed => {
+                            error!(
+                                class_hash = class_hash,
+                                verification_id = verification_status_id.to_string(),
+                                project_id = project_id,
+                                chain_id = chain_id,
+                                tags.verification_status = "failed",
+                                "Verification failed: {}",
+                                message.clone().unwrap_or_default()
+                            );
+                        }
+                    };
                 }
             }
             Err(e) => {
@@ -292,13 +303,15 @@ pub async fn initiate_verification(
                 .await;
 
                 for class_hash in &pending_class_hashes {
-                    sentry::configure_scope(|scope| {
-                        scope.set_tag("verification_status", "failed");
-                        scope.set_tag("verification_id", verification_status_id.to_string());
-                        scope.set_tag("class_hash", class_hash.clone());
-                        scope.set_extra("error", e.to_string().into());
-                    });
-                    sentry::capture_message("Verification failed", sentry::Level::Error);
+                    error!(
+                        class_hash = class_hash,
+                        verification_id = verification_status_id.to_string(),
+                        project_id = project_id,
+                        chain_id = chain_id,
+                        tags.verification_status = "failed",
+                        "Verification failed: {}",
+                        e.to_string()
+                    );
                 }
             }
         }

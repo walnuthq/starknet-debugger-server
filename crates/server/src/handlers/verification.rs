@@ -8,6 +8,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
+use tracing::error;
 use url::Url;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -20,9 +21,6 @@ use walnut_shared::{
     chain_id_to_readable_string, create_rpc_client, create_rpc_client_from_url, extract_chain_id,
     pad_hex_string_to_66,
 };
-
-use sentry;
-use sentry::Level;
 
 #[derive(Deserialize, Debug, Serialize, ToSchema)]
 pub struct VerificationStatusResponse {
@@ -120,12 +118,12 @@ pub async fn verify_handler(
     let chain_id = match extract_chain_id(chain_id.as_str()) {
         Ok(chain_id) => chain_id,
         Err(e) => {
-            sentry::configure_scope(|scope| {
-                scope.set_tag("verification_status", "failed");
-                scope.set_extra("error", e.to_string().into());
-            });
-            sentry::capture_message("Failed to extract chain ID", Level::Error);
-
+            error!(
+                chain_id = chain_id.as_str(),
+                tags.verification_status = "failed",
+                "Verification failed: {}",
+                e.to_string(),
+            );
             return (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response();
         }
     };
@@ -153,13 +151,12 @@ pub async fn verify_handler(
             (StatusCode::OK, Json(response_message)).into_response()
         }
         Err(e) => {
-            sentry::configure_scope(|scope| {
-                scope.set_tag("verification_status", "failed");
-                scope.set_extra("error", e.to_string().into());
-                scope.set_extra("contract_address", contract_address_clone.into());
-            });
-            sentry::capture_message("Verification failed", Level::Error);
-
+            error!(
+                contract_address = contract_address_clone,
+                tags.verification_status = "failed",
+                "Verification failed: {}",
+                e.to_string(),
+            );
             (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response()
         }
     }
@@ -224,12 +221,11 @@ pub async fn verify_handler_with_rpc(
     let api_key = match get_api_token(&headers) {
         Ok(token) => token,
         Err(e) => {
-            sentry::configure_scope(|scope| {
-                scope.set_tag("verification_status", "failed");
-                scope.set_extra("error", e.to_string().into());
-            });
-            sentry::capture_message("Failed to retrieve API token", Level::Error);
-
+            error!(
+                tags.verification_status = "failed",
+                "Verification failed: {}",
+                e.to_string(),
+            );
             return (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response();
         }
     };
@@ -237,12 +233,12 @@ pub async fn verify_handler_with_rpc(
     let project_id = match check_api_key(&api_key) {
         Ok(project_id) => project_id,
         Err(e) => {
-            sentry::configure_scope(|scope| {
-                scope.set_tag("verification_status", "failed");
-                scope.set_extra("error", e.to_string().into());
-            });
-            sentry::capture_message("Unauthorized: Invalid API key", Level::Error);
-
+            error!(
+                api_key = api_key,
+                tags.verification_status = "failed",
+                "Verification failed: {}",
+                e.to_string(),
+            );
             return (StatusCode::UNAUTHORIZED, Json(e.to_string())).into_response();
         }
     };
@@ -250,13 +246,12 @@ pub async fn verify_handler_with_rpc(
     let rpc_url = match Url::parse(&payload.rpc_url) {
         Ok(url) => url,
         Err(e) => {
-            sentry::configure_scope(|scope| {
-                scope.set_tag("verification_status", "failed");
-                scope.set_extra("project_id", project_id.into());
-                scope.set_extra("error", e.to_string().into());
-            });
-            sentry::capture_message("Failed to parse RPC URL", Level::Error);
-
+            error!(
+                project_id = project_id,
+                tags.verification_status = "failed",
+                "Verification failed: Failed to parse RPC URL: {}",
+                e.to_string(),
+            );
             return (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response();
         }
     };
@@ -314,13 +309,12 @@ pub async fn verify_handler_with_rpc(
             (StatusCode::OK, Json(response_message)).into_response()
         }
         Err(e) => {
-            sentry::configure_scope(|scope| {
-                scope.set_tag("verification_status", "failed");
-                scope.set_extra("error", e.to_string().into());
-                scope.set_extra("project_id", project_id.into());
-            });
-            sentry::capture_message("Verification failed", Level::Error);
-
+            error!(
+                project_id = project_id,
+                tags.verification_status = "failed",
+                "Verification failed: {}",
+                e.to_string(),
+            );
             (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response()
         }
     }

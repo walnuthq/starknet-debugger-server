@@ -44,3 +44,5 @@ aws-config.workspace = true
 sentry = "0.34.0"
 starknet-providers.workspace = true
 starknet-old.workspace = true
+sentry-tracing.workspace = true
+sentry-tower.workspace = true
