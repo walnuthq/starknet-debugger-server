@@ -29,7 +29,7 @@ pub struct SimulationTxHashArgs {
 
 #[derive(Debug, Deserialize)]
 pub struct QueryParams {
-    skip_tg_notification: Option<bool>,
+    skip_tg_notification: Option<String>,
 }
 
 #[debug_handler]
@@ -79,8 +79,8 @@ pub async fn simulate_transaction_by_hash_handler(
         Err(e) => return (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response(),
     };
 
-    // don't sent Telegram notification if skip_tg_notification is true (it set in URLs sent to tg bot)
-    if !query_params.skip_tg_notification.unwrap_or(false) {
+    // don't sent Telegram notification if query param skip_tg_notification=true (it set in URLs sent to tg bot)
+    if !query_params.skip_tg_notification.unwrap_or(String::new()).eq("true") {
         send_telegram_notification(tx_hash.as_str(), &chain_id).await.unwrap();
     }
 
