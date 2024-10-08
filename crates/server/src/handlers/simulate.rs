@@ -9,9 +9,14 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use simulate::{simulate_by_data, simulate_transaction_by_hash, SimulationArgs, SimulationRawArgs};
 use std::sync::Arc;
+use axum::extract::Query;
 use url::Url;
 use walnut_shared::{extract_chain_id, rpc_url};
+use crate::telegram_bot_service::send_telegram_notification;
 
+use axum_extra::{
+    extract::cookie::{CookieJar},
+};
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SimulationPayload {
     WithCalldata(SimulationRawArgs),
@@ -22,6 +27,12 @@ pub enum SimulationPayload {
 pub struct SimulationTxHashArgs {
     pub rpc_url: String,
     pub tx_hash: String,
+}
+
+
+#[derive(Debug, Deserialize)]
+pub struct QueryParams {
+    skip_tg_notification: Option<bool>,
 }
 
 #[debug_handler]
@@ -64,11 +75,21 @@ pub async fn simulate_transaction(
 pub async fn simulate_transaction_by_hash_handler(
     State(state): State<Arc<AppState>>,
     Path((chain_id, tx_hash)): Path<(String, String)>,
+    Query(query_params): Query<QueryParams>,
+    jar: CookieJar,
 ) -> Response {
     let chain_id = match extract_chain_id(chain_id.as_str()) {
         Ok(chain_id) => chain_id,
         Err(e) => return (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response(),
     };
+
+    // don't send Telegram notifications if skip_tg_notification_pls=true cookie set
+    if let None = jar.get("skip_tg_notifications_pls") {
+        // don't sent Telegram notification if skip_tg_notification is true (it set in URLs sent to tg bot)
+        if !query_params.skip_tg_notification.unwrap_or(false) {
+            send_telegram_notification(tx_hash.as_str(), &chain_id).await.unwrap();
+        }
+    }
 
     let rpc_url = rpc_url(&chain_id);
 

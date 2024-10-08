@@ -1,5 +1,6 @@
 mod app_state;
 mod handlers;
+mod telegram_bot_service;
 
 extern crate dotenv;
 
@@ -27,7 +28,7 @@ use handlers::{
 };
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
 
@@ -168,7 +169,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
-
+    let cors = CorsLayer::new()
+        .allow_origin(AllowOrigin::exact("http://localhost:5173".parse().unwrap()))  // Specify your frontend origin here
+        .allow_methods(vec![Method::GET, Method::DELETE, Method::OPTIONS, Method::POST, Method::PATCH, Method::PUT])  // Adjust based on your needs
+        .allow_headers(vec![header::AUTHORIZATION, header::CONTENT_TYPE])  // Adjust based on your needs
+        .allow_credentials(true);  // This i
     let app = Router::new()
         .route("/v1/simulate-transaction", post(simulate_transaction))
         .route(
@@ -200,7 +205,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(prometheus_layer)
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .route("/_ah/warmup", get(|| async { "OK" }))
-        .layer(CorsLayer::permissive());
+        .layer(cors);
 
     println!("Listening on 0.0.0.0:3000");
 

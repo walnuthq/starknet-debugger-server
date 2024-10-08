@@ -43,3 +43,4 @@ aws-sdk-s3.workspace = true
 aws-config.workspace = true
 starknet-providers.workspace = true
 starknet-old.workspace = true
+axum-extra.workspace = true

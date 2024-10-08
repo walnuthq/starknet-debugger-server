@@ -16,6 +16,8 @@ edition = "2021"
 
 [workspace.dependencies]
 axum = { version = "0.6.20", features = ["macros"] }
+# 0.9.0 is not compatible with the current version of axum 0.6.x
+axum-extra = { version = "0.8.0", features = ["cookie"] }
 redis = { version = "0.23.3", features = ["tokio-comp"] }
 sqlx = { version = "0.7.2", features = [
   "runtime-tokio",
