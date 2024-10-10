@@ -1,5 +1,6 @@
 use reqwest::Client;
 use starknet_api::core::ChainId;
+use tracing::{debug, info, warn};
 
 pub async fn send_telegram_notification(tx_id: &str, chain_id: &ChainId) -> Result<(), Box<dyn std::error::Error>> {
     let telegram_bot_api_key: String = std::env::var("TELEGRAM_BOT_API_KEY").unwrap_or(String::new());
@@ -8,12 +9,12 @@ pub async fn send_telegram_notification(tx_id: &str, chain_id: &ChainId) -> Resu
 
     // skip if telegram_bot_api_key is not set
     if telegram_bot_api_key.is_empty() {
-        println!("telegram_bot_api_key is not set, skipping notification.");
+        debug!("telegram_bot_api_key is not set, skipping notification.");
         return Ok(());
     }
 
     if telegram_walnut_notifications_chat_id.is_empty() {
-        println!("telegram_walnut_notifications_chat_id is not set, skipping notification.");
+        debug!("telegram_walnut_notifications_chat_id is not set, skipping notification.");
         return Ok(());
     }
 
@@ -32,11 +33,11 @@ pub async fn send_telegram_notification(tx_id: &str, chain_id: &ChainId) -> Resu
     match res {
         Ok(res) => {
             if !res.status().is_success() {
-                println!("Failed to send telegram notification for tx_id: {}. Error: {}", tx_id, res.text().await.unwrap_or_else(|_| "Unknown error".to_string()));
+                info!("Failed to send telegram notification for tx_id: {}. Error: {}", tx_id, res.text().await.unwrap_or_else(|_| "Unknown error".to_string()));
             }
         }
         Err(e) => {
-            println!("Failed to send telegram notification for tx_id: {}. Error: {}", tx_id, e);
+            warn!("Failed to send telegram notification for tx_id: {}. Error: {}", tx_id, e);
         }
     }
     Ok(())

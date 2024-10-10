@@ -29,7 +29,7 @@ pub struct SimulationTxHashArgs {
 
 #[derive(Debug, Deserialize)]
 pub struct QueryParams {
-    skip_tg_notification: Option<String>,
+    skip_tracking: Option<String>,
 }
 
 #[debug_handler]
@@ -80,7 +80,7 @@ pub async fn simulate_transaction_by_hash_handler(
     };
 
     // don't sent Telegram notification if query param skip_tg_notification=true (it set in URLs sent to tg bot)
-    if !query_params.skip_tg_notification.unwrap_or(String::new()).eq("true") {
+    if !query_params.skip_tracking.unwrap_or(String::new()).eq("true") {
         send_telegram_notification(tx_hash.as_str(), &chain_id).await.unwrap();
     }
 
