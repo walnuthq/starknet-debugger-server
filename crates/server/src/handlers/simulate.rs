@@ -7,7 +7,10 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use simulate::{simulate_by_data, simulate_transaction_by_hash, SimulationArgs, SimulationRawArgs};
+use simulate::{
+    simulate::{simulate_by_calldata, simulate_transaction_by_hash},
+    SimulationArgs, SimulationRawArgs,
+};
 use std::sync::Arc;
 use url::Url;
 use walnut_shared::{extract_chain_id, rpc_url};
@@ -36,7 +39,7 @@ pub async fn simulate_transaction(
                 Err(e) => return (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response(),
             };
 
-            simulate_by_data(&state.db_pool, &state.s3_client, simulation_args).await
+            simulate_by_calldata(&state.db_pool, &state.s3_client, simulation_args).await
         }
         SimulationPayload::WithTxHash(args) => {
             let rpc_url = match Url::parse(&args.rpc_url) {

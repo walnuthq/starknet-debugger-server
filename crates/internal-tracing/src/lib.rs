@@ -1,24 +1,27 @@
 pub mod call_trace;
 pub mod debugger_data_fetcher;
+pub mod function_call;
+pub mod function_calls_map;
 pub mod mappings;
 pub mod utils;
-use crate::mappings::Mappings;
 
 use anyhow::Result;
 use cairo_lang_starknet_classes::contract_class::ContractClass;
 use cairo_vm::vm::trace::trace_entry::RelocatedTraceEntry;
-use call_trace::{
-    get_internal_call_trace, DebuggerExecutionTraceEntry, InternalFnCallTraceEntryNode,
-};
+use call_trace::{get_internal_call_trace, DebuggerTraceEntry};
+use function_calls_map::FunctionCallsMap;
 use serde::Serialize;
 use starknet::core::types::Felt;
 use std::collections::HashMap;
 use verification::SierraStatementToCairoDebugInfo;
 
+use crate::mappings::Mappings;
+
 /// Contains the debugger data for all classes in a simulation
 #[derive(Debug, Serialize)]
 pub struct SimulationDebuggerData {
     pub classes_debugger_data: HashMap<String, ClassDebuggerData>,
+    pub debugger_trace: Vec<DebuggerTraceEntry>,
 }
 
 /// Contains the debugger data for a class with the Sierra contract class
@@ -38,7 +41,7 @@ pub struct ClassDebuggerData {
 /// Contains the debugger data for a contract call
 #[derive(Debug, Serialize)]
 pub struct ContractCallDebuggerData {
-    pub execution_trace: Vec<DebuggerExecutionTraceEntry>,
+    pub execution_trace: Vec<DebuggerTraceEntry>,
 }
 
 pub fn debugger_data_maps_full_class_to_class(
@@ -56,27 +59,36 @@ pub fn debugger_data_maps_full_class_to_class(
 
 /// Returns the internal function call trace and sierra_execution_trace
 pub fn get_internal_trace_and_debugger_data(
-    relocated_memory: &Vec<Option<Felt>>,
+    vm_memory: &Vec<Option<Felt>>,
     vm_trace: &Vec<RelocatedTraceEntry>,
     full_class_debugger_data: &ClassDebuggerDataWithContractClass,
-    parent_contract_call_id: &String,
-) -> Result<(InternalFnCallTraceEntryNode, ContractCallDebuggerData)> {
+    function_calls_map: &mut FunctionCallsMap,
+    next_call_id: &mut u32,
+    contract_call_id: u32,
+    contract_call_children_ids: &Vec<u32>,
+) -> Result<(ContractCallDebuggerData, u32)> {
     let mappings = Mappings::new(
-        relocated_memory,
+        vm_memory,
         vm_trace,
         full_class_debugger_data.contract_class.clone(),
     )?;
 
-    let (internal_trace, execution_trace) = get_internal_call_trace(
+    let (execution_trace, root_function_call_id) = get_internal_call_trace(
         &mappings,
-        relocated_memory,
+        vm_memory,
         vm_trace,
         full_class_debugger_data
             .class_debugger_data
             .as_ref()
             .map(|class_debugger_data| &class_debugger_data.sierra_statements_to_cairo_info),
-        parent_contract_call_id,
+        function_calls_map,
+        next_call_id,
+        contract_call_id,
+        contract_call_children_ids,
     )?;
 
-    Ok((internal_trace, ContractCallDebuggerData { execution_trace }))
+    Ok((
+        ContractCallDebuggerData { execution_trace },
+        root_function_call_id,
+    ))
 }
