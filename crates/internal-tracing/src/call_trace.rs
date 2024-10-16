@@ -74,8 +74,9 @@ pub fn get_internal_call_trace(
     let root_function_call_id = *next_call_id;
     let root_function_call = FunctionCall {
         call_id: root_function_call_id,
-        parent_call_id: contract_call_id,
+        parent_call_id: 0,
         children_call_ids: Vec::new(),
+        contract_call_id,
         fn_name: entrypoint_function
             .and_then(|f| f.id.debug_name.clone())
             .and_then(|n| Some(n.to_string())),
@@ -148,6 +149,7 @@ pub fn get_internal_call_trace(
                 call_id: new_function_call_id,
                 parent_call_id: current_call_id,
                 children_call_ids: Vec::new(),
+                contract_call_id,
 
                 fn_name: function
                     .and_then(|f| f.id.debug_name.clone())

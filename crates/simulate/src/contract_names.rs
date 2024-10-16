@@ -1,5 +1,3 @@
-use crate::contract_call::ContractCall;
-use crate::ContractCallEvent;
 use futures::future::join_all;
 use serde_json::Value;
 use starknet::core::types::Felt;
@@ -12,6 +10,8 @@ use starknet_providers::Provider;
 use std::collections::{HashMap, HashSet};
 use walnut_shared::felt_to_field_element;
 use walnut_shared::{bytes_to_text, get_voyager_api_url};
+
+use crate::contract_call::ContractCall;
 
 pub struct ContractNamesFetcher {
     provider_client: JsonRpcClient<HttpTransport>,
@@ -44,7 +44,6 @@ impl ContractNamesFetcher {
     pub async fn enhance_call_tree_with_contract_names(
         &mut self,
         contract_calls_map: &mut HashMap<u32, ContractCall>,
-        _events: &mut Vec<ContractCallEvent>,
     ) {
         self.collect_contract_addresses(contract_calls_map);
         self.token_contract_names = self.fetch_token_contract_names().await;
@@ -52,10 +51,6 @@ impl ContractNamesFetcher {
             self.contract_names = self.fetch_contract_names(voyager_api_url.clone()).await;
         }
         self.update_simulation_call_trace(contract_calls_map);
-        // TODO
-        // for event in &mut events.iter_mut() {
-        //     self.update_event_trace_with_contract_names(simulation_call_trace, event_trace);
-        // }
     }
 
     fn collect_contract_addresses(&mut self, contract_calls_map: &mut HashMap<u32, ContractCall>) {
@@ -207,47 +202,4 @@ impl ContractNamesFetcher {
             }
         }
     }
-
-    // fn update_event_with_contract_name(
-    //     &self,
-    //     simulation_call_trace: &SimulationCallTrace,
-    //     event_trace: &mut EventTrace,
-    // ) {
-    //     let storage_address_formatted = format!(
-    //         "0x{:0>64}",
-    //         simulation_call_trace
-    //             .entry_point
-    //             .storage_address
-    //             .0
-    //             .to_string()
-    //             .trim_start_matches("0x")
-    //     );
-    //     if storage_address_formatted == event_trace.contract_name {
-    //         let contract_name = simulation_call_trace.additional_info.contract_name.clone();
-    //         match contract_name {
-    //             Some(name) => {
-    //                 event_trace.contract_name = name;
-    //             }
-    //             None => {
-    //                 let token_name = simulation_call_trace
-    //                     .additional_info
-    //                     .erc20_token_name
-    //                     .clone()
-    //                     .unwrap_or_default();
-    //                 let token_symbol = simulation_call_trace
-    //                     .additional_info
-    //                     .erc20_token_symbol
-    //                     .clone()
-    //                     .unwrap_or_default();
-    //                 if !token_name.is_empty() && !token_symbol.is_empty() {
-    //                     event_trace.contract_name = format!("{} ({})", token_name, token_symbol);
-    //                 }
-    //             }
-    //         }
-    //     }
-
-    //     for nested_call in &simulation_call_trace.nested_calls {
-    //         self.update_event_trace_with_contract_names(nested_call, event_trace)
-    //     }
-    // }
 }

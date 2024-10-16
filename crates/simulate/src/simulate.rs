@@ -58,9 +58,10 @@ use walnut_shared::{
 };
 
 use crate::abi_processor::AbiProcessor;
+use crate::contract_calls_map::ContractCallsMap;
 use crate::contract_calls_map::ContractCallsMapBuilder;
 use crate::contract_names::ContractNamesFetcher;
-use crate::debugger_trace::merge_debugger_trace;
+use crate::debugger_trace::DebuggerTraceBuilder;
 use crate::enhance::enhance_call_tree_with_function_calls;
 use crate::state::ForkStateReader;
 use crate::transaction_extraction::extract_block_txs_info;
@@ -151,10 +152,14 @@ pub async fn simulate(
         }
     }
 
-    let mut events = get_events_from_cheatnet_state(cheatnet_state_detected_events, &event_abis);
+    let events = get_events_from_cheatnet_state(
+        cheatnet_state_detected_events,
+        &event_abis,
+        &contract_calls_map,
+    );
 
     ContractNamesFetcher::new(provider_client, chain_id.as_ref())
-        .enhance_call_tree_with_contract_names(&mut contract_calls_map.0, &mut events)
+        .enhance_call_tree_with_contract_names(&mut contract_calls_map.0)
         .await;
 
     let execution_result =
@@ -166,7 +171,8 @@ pub async fn simulate(
         }
     }
 
-    let debugger_trace = merge_debugger_trace(&1, &mut function_calls_map, &contract_calls_map);
+    let debugger_trace =
+        DebuggerTraceBuilder::build(&1, &mut function_calls_map, &mut contract_calls_map);
 
     let simulation_info = SimulationInfo {
         contract_calls_map,
@@ -399,9 +405,11 @@ fn extract_sierra_and_cairo_versions(sierra_program: &[Felt]) -> (Option<String>
     (Some(sierra_version), Some(cairo_version))
 }
 
+// TODO
 fn get_events_from_cheatnet_state(
     cheatnet_state_detected_events: Vec<Event>,
     event_abis: &Vec<EventAbi>,
+    contract_calls_map: &ContractCallsMap,
 ) -> Vec<ContractCallEvent> {
     let mut events: Vec<ContractCallEvent> = Vec::new();
     for cheatnet_state_event in cheatnet_state_detected_events {
@@ -411,10 +419,16 @@ fn get_events_from_cheatnet_state(
             let selector = selector_from_name(&abi.name).0;
             selector == event_selector
         });
+
+        let contract_call = contract_calls_map
+            .0
+            .values()
+            .find(|call| call.entry_point.storage_address == cheatnet_state_event.from)
+            .unwrap();
+
         if let Some(event_abi) = event_abi {
             let event = ContractCallEvent {
-                contract_name: None,
-                contract_address: cheatnet_state_event.from.into(),
+                contract_call_id: contract_call.call_id,
                 name: event_abi.name.clone(),
                 keys: felt_vec_to_hex_vec(cheatnet_state_event.keys.to_vec()),
                 parameters: event_abi.parameters.clone(),

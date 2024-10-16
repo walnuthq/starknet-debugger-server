@@ -154,8 +154,7 @@ pub struct SimulationInfo {
 
 #[derive(Serialize, Debug)]
 pub struct ContractCallEvent {
-    pub contract_name: Option<String>,
-    pub contract_address: Felt,
+    pub contract_call_id: u32,
     pub name: String,
     pub keys: Vec<String>,
     pub parameters: Vec<Parameter>,

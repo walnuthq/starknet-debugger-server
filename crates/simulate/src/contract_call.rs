@@ -45,6 +45,7 @@ pub struct ContractCall {
     pub contract_calls_nesting_level: u32,
 
     pub code_location: Option<CodeLocation>,
+    pub debugger_trace_step_index: Option<usize>,
 }
 
 impl ContractCall {
@@ -92,6 +93,7 @@ impl ContractCall {
             contract_calls_nesting_level,
 
             code_location: None,
+            debugger_trace_step_index: None,
         }
     }
 
