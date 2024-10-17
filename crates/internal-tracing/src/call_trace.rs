@@ -149,36 +149,38 @@ pub fn get_internal_call_trace(
                 None => Vec::new(),
             };
 
-            let new_function_call_id = *next_call_id;
-            let function_call = FunctionCall {
-                call_id: new_function_call_id,
-                parent_call_id: current_call_id,
-                children_call_ids: Vec::new(),
-                contract_call_id,
+            if function.is_some() {
+                let new_function_call_id = *next_call_id;
+                let function_call = FunctionCall {
+                    call_id: new_function_call_id,
+                    parent_call_id: current_call_id,
+                    children_call_ids: Vec::new(),
+                    contract_call_id,
 
-                fn_name: function
-                    .and_then(|f| f.id.debug_name.clone())
-                    .and_then(|n| Some(n.to_string())),
-                fp: trace_entry.fp,
-                is_deepest_panic_result: false,
-                arguments: arguments.clone(),
-                results: Vec::new(),
-                code_location: cairo_locations.first().cloned(),
-                debugger_trace_step_index: None,
-            };
-            *next_call_id += 1;
-            function_calls_map
-                .0
-                .insert(new_function_call_id, function_call);
-            function_calls_map
-                .0
-                .get_mut(&current_call_id)
-                .unwrap()
-                .children_call_ids
-                .push(new_function_call_id);
-            current_call_id = new_function_call_id;
+                    fn_name: function
+                        .and_then(|f| f.id.debug_name.clone())
+                        .and_then(|n| Some(n.to_string())),
+                    fp: trace_entry.fp,
+                    is_deepest_panic_result: false,
+                    arguments: arguments.clone(),
+                    results: Vec::new(),
+                    code_location: cairo_locations.first().cloned(),
+                    debugger_trace_step_index: None,
+                };
+                *next_call_id += 1;
+                function_calls_map
+                    .0
+                    .insert(new_function_call_id, function_call);
+                function_calls_map
+                    .0
+                    .get_mut(&current_call_id)
+                    .unwrap()
+                    .children_call_ids
+                    .push(new_function_call_id);
+                current_call_id = new_function_call_id;
 
-            nesting_level += 1;
+                nesting_level += 1;
+            }
         } else if trace_entry.fp < prev_fp {
             // If the FP register decreases, that means we have exited the function call
             let prev_trace_entry = &vm_trace[i - 1];
@@ -194,26 +196,35 @@ pub fn get_internal_call_trace(
                 None => Vec::new(),
             };
 
-            for result in results.iter() {
-                if nesting_level > deepest_panic_result_level {
-                    if is_panic_result(&result.type_name) && result.value[0] == "1" {
-                        deepest_panic_result_level = nesting_level;
-                        deepest_panic_result_call_id = Some(current_call_id);
-                    }
-                }
-            }
-
-            let current_function_call = function_calls_map.0.get_mut(&current_call_id).unwrap();
-            current_function_call.results = results.clone();
-
-            // Return to the parent function call
-            current_call_id = function_calls_map
+            let parent_call_id = function_calls_map
                 .0
                 .get(&current_call_id)
                 .unwrap()
                 .parent_call_id;
 
-            nesting_level -= 1;
+            if parent_call_id != 0 {
+                let parent_call = function_calls_map.0.get(&parent_call_id).unwrap();
+
+                if parent_call.fp == trace_entry.fp {
+                    for result in results.iter() {
+                        if nesting_level > deepest_panic_result_level {
+                            if is_panic_result(&result.type_name) && result.value[0] == "1" {
+                                deepest_panic_result_level = nesting_level;
+                                deepest_panic_result_call_id = Some(current_call_id);
+                            }
+                        }
+                    }
+
+                    let current_function_call =
+                        function_calls_map.0.get_mut(&current_call_id).unwrap();
+                    current_function_call.results = results.clone();
+
+                    // Return to the parent function call
+                    current_call_id = parent_call_id;
+
+                    nesting_level -= 1;
+                }
+            }
         } else {
             let current_function_call = function_calls_map.0.get_mut(&current_call_id).unwrap();
             if let Some(cairo_location) = cairo_locations.first() {
