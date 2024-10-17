@@ -1,5 +1,6 @@
 use crate::{
     function_call::FunctionCall, function_calls_map::FunctionCallsMap, mappings::Mappings,
+    utils::is_panic_result,
 };
 use anyhow::Result;
 use cairo_vm::vm::trace::trace_entry::RelocatedTraceEntry;
@@ -71,6 +72,10 @@ pub fn get_internal_call_trace(
             _ => Vec::new(),
         };
 
+    let mut deepest_panic_result_level = -1;
+    let mut deepest_panic_result_call_id: Option<u32> = None;
+    let mut nesting_level = 0;
+
     let root_function_call_id = *next_call_id;
     let root_function_call = FunctionCall {
         call_id: root_function_call_id,
@@ -81,7 +86,7 @@ pub fn get_internal_call_trace(
             .and_then(|f| f.id.debug_name.clone())
             .and_then(|n| Some(n.to_string())),
         fp: prev_fp,
-        is_panic_result: false,
+        is_deepest_panic_result: false,
         arguments: Vec::new(),
         results: Vec::new(),
         code_location: entrypoint_cairo_locations.first().cloned(),
@@ -155,7 +160,7 @@ pub fn get_internal_call_trace(
                     .and_then(|f| f.id.debug_name.clone())
                     .and_then(|n| Some(n.to_string())),
                 fp: trace_entry.fp,
-                is_panic_result: false,
+                is_deepest_panic_result: false,
                 arguments: arguments.clone(),
                 results: Vec::new(),
                 code_location: cairo_locations.first().cloned(),
@@ -172,6 +177,8 @@ pub fn get_internal_call_trace(
                 .children_call_ids
                 .push(new_function_call_id);
             current_call_id = new_function_call_id;
+
+            nesting_level += 1;
         } else if trace_entry.fp < prev_fp {
             // If the FP register decreases, that means we have exited the function call
             let prev_trace_entry = &vm_trace[i - 1];
@@ -187,6 +194,15 @@ pub fn get_internal_call_trace(
                 None => Vec::new(),
             };
 
+            for result in results.iter() {
+                if nesting_level > deepest_panic_result_level {
+                    if is_panic_result(&result.type_name) && result.value[0] == "1" {
+                        deepest_panic_result_level = nesting_level;
+                        deepest_panic_result_call_id = Some(current_call_id);
+                    }
+                }
+            }
+
             let current_function_call = function_calls_map.0.get_mut(&current_call_id).unwrap();
             current_function_call.results = results.clone();
 
@@ -196,6 +212,8 @@ pub fn get_internal_call_trace(
                 .get(&current_call_id)
                 .unwrap()
                 .parent_call_id;
+
+            nesting_level -= 1;
         } else {
             let current_function_call = function_calls_map.0.get_mut(&current_call_id).unwrap();
             if let Some(cairo_location) = cairo_locations.first() {
@@ -287,6 +305,14 @@ pub fn get_internal_call_trace(
         }
 
         prev_fp = trace_entry.fp;
+    }
+
+    if let Some(deepest_panic_result_call_id) = &deepest_panic_result_call_id {
+        let deepest_panic_call = function_calls_map
+            .0
+            .get_mut(deepest_panic_result_call_id)
+            .unwrap();
+        deepest_panic_call.is_deepest_panic_result = true;
     }
 
     Ok((debugger_execution_trace, root_function_call_id))

@@ -12,7 +12,7 @@ pub struct FunctionCall {
 
     pub fn_name: Option<String>,
     pub fp: usize,
-    pub is_panic_result: bool,
+    pub is_deepest_panic_result: bool,
     pub results: Vec<InternalFnCallIO>,
     pub arguments: Vec<InternalFnCallIO>,
 
