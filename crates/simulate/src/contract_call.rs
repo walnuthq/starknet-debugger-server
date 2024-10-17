@@ -35,6 +35,7 @@ pub struct ContractCall {
     pub class_hash: Option<String>,
     pub sierra_version: Option<String>,
     pub cairo_version: Option<String>,
+    pub is_failed: bool,
 
     pub result_types: Option<Vec<String>>,
     pub arguments_names: Option<Vec<String>>,
@@ -83,6 +84,7 @@ impl ContractCall {
                 .map(|class_hash| class_hash.0.to_fixed_hex_string()),
             sierra_version: None,
             cairo_version: None,
+            is_failed: matches!(call_trace_ref.result, CallResult::Failure(_)),
 
             result_types: None,
             decoded_result: None,

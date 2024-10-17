@@ -102,8 +102,9 @@ pub async fn simulate(
     let ContractCallsMapBuilder {
         mut contract_calls_map,
         next_call_id,
-        deepest_contract_call_id,
+        deepest_failed_contract_call_id,
         cheatnet_state_detected_events,
+        ..
     } = ContractCallsMapBuilder::new_from_cheatnet_state(cheatnet_state);
 
     let class_hashes = contract_calls_map.collect_all_class_hashes();
@@ -163,10 +164,13 @@ pub async fn simulate(
         .await;
 
     let execution_result =
-        get_execution_result(&mut contract_calls_map.0, deepest_contract_call_id)?;
+        get_execution_result(&mut contract_calls_map.0, deepest_failed_contract_call_id)?;
 
     if let ExecutionResult::Reverted { reason, .. } = &execution_result {
-        if let Some(call) = contract_calls_map.0.get_mut(&deepest_contract_call_id) {
+        if let Some(call) = contract_calls_map
+            .0
+            .get_mut(&deepest_failed_contract_call_id.unwrap())
+        {
             call.error_message = Some(reason.clone());
         }
     }
@@ -442,26 +446,30 @@ fn get_events_from_cheatnet_state(
 }
 
 fn get_execution_result(
-    contract_calls_map: &mut HashMap<u32, ContractCall>,
-    deepest_contract_call_id: u32,
+    contract_calls_map: &HashMap<u32, ContractCall>,
+    deepest_contract_call_id: Option<u32>,
 ) -> Result<ExecutionResult, TransactionSimulationError> {
-    if let Some(call) = contract_calls_map.get_mut(&deepest_contract_call_id) {
-        if let CallResult::Failure(failure) = &call.result {
-            match failure {
-                CallFailure::Panic { panic_data } => match decode_felt(panic_data.to_vec()) {
-                    Ok(decoded) => Ok(ExecutionResult::Reverted { reason: decoded }),
-                    Err(_) => Err(TransactionSimulationError::OtherError(
-                        "Failed to decode revert reason".to_string(),
-                    )),
-                },
-                CallFailure::Error { msg } => Ok(ExecutionResult::Reverted {
-                    reason: msg.to_string(),
-                }),
+    if let Some(deepest_contract_call_id) = deepest_contract_call_id {
+        if let Some(call) = contract_calls_map.get(&deepest_contract_call_id) {
+            if let CallResult::Failure(failure) = &call.result {
+                match failure {
+                    CallFailure::Panic { panic_data } => match decode_felt(panic_data.to_vec()) {
+                        Ok(decoded) => Ok(ExecutionResult::Reverted { reason: decoded }),
+                        Err(_) => Err(TransactionSimulationError::OtherError(
+                            "Failed to decode revert reason".to_string(),
+                        )),
+                    },
+                    CallFailure::Error { msg } => Ok(ExecutionResult::Reverted {
+                        reason: msg.to_string(),
+                    }),
+                }
+            } else {
+                Ok(ExecutionResult::Succeeded)
             }
         } else {
-            Ok(ExecutionResult::Succeeded)
+            unreachable!("deepest_contract_call_id not found in contract_calls_map");
         }
     } else {
-        unreachable!("deepest_contract_call_id not found in contract_calls_map");
+        Ok(ExecutionResult::Succeeded)
     }
 }

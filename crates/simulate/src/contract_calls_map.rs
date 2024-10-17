@@ -30,7 +30,8 @@ impl ContractCallsMap {
 pub struct ContractCallsMapBuilder {
     pub contract_calls_map: ContractCallsMap,
     pub next_call_id: u32,
-    pub deepest_contract_call_id: u32,
+    pub deepest_failed_contract_call_id: Option<u32>,
+    pub deepest_failed_nesting_level: u32,
     pub cheatnet_state_detected_events: Vec<Event>,
 }
 
@@ -39,7 +40,8 @@ impl ContractCallsMapBuilder {
         let mut contract_call_tree_builder = Self {
             contract_calls_map: ContractCallsMap::new(),
             next_call_id: 1,
-            deepest_contract_call_id: 1,
+            deepest_failed_contract_call_id: None,
+            deepest_failed_nesting_level: 0,
             cheatnet_state_detected_events: cheatnet_state.detected_events.clone(),
         };
 
@@ -86,6 +88,18 @@ impl ContractCallsMapBuilder {
                         current_call_id,
                         nesting_level + 1,
                     );
+
+                    if contract_call.is_failed {
+                        if self.deepest_failed_contract_call_id.is_some() {
+                            if nesting_level + 1 > self.deepest_failed_nesting_level {
+                                self.deepest_failed_contract_call_id = Some(new_contract_call_id);
+                            }
+                        } else {
+                            self.deepest_failed_contract_call_id = Some(new_contract_call_id);
+                            self.deepest_failed_nesting_level = nesting_level + 1;
+                        }
+                    }
+
                     self.next_call_id += 1;
                     self.contract_calls_map
                         .0
@@ -96,10 +110,6 @@ impl ContractCallsMapBuilder {
                         .unwrap()
                         .children_call_ids
                         .push(new_contract_call_id);
-
-                    if nesting_level + 1 > self.deepest_contract_call_id {
-                        self.deepest_contract_call_id = new_contract_call_id;
-                    }
 
                     self.traverse_cheatnet_state_calltrace(
                         new_contract_call_id,

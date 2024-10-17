@@ -1,6 +1,7 @@
 use internal_tracing::function_calls_map::FunctionCallsMap;
 use internal_tracing::get_internal_trace_and_debugger_data;
 use internal_tracing::ClassDebuggerDataWithContractClass;
+use tracing::debug;
 use std::collections::HashMap;
 use tracing::error;
 
@@ -41,7 +42,7 @@ pub fn enhance_call_tree_with_function_calls(
                 }
             }
             _ => {
-                error!("Not enough data to get internal fn call trace");
+                debug!("Not enough data to get internal fn call trace");
                 None
             }
         };
