@@ -51,7 +51,7 @@ pub fn get_internal_call_trace(
     function_calls_map: &mut FunctionCallsMap,
     next_call_id: &mut u32,
     contract_call_id: u32,
-    contract_call_children_ids: &Vec<u32>,
+    contract_call_children_ids: &[u32],
 ) -> Result<(Vec<DebuggerTraceEntry>, u32)> {
     let first_vm_trace_entry = vm_trace.first().unwrap();
     let mut prev_fp = first_vm_trace_entry.fp;

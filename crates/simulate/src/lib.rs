@@ -3,7 +3,7 @@ pub mod contract_call;
 pub mod contract_calls_map;
 pub mod contract_names;
 pub mod debugger_trace;
-pub mod enhance;
+pub mod function_calls;
 pub mod simulate;
 pub mod state;
 pub mod transaction_extraction;

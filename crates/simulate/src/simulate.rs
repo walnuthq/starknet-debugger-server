@@ -62,7 +62,7 @@ use crate::contract_calls_map::ContractCallsMap;
 use crate::contract_calls_map::ContractCallsMapBuilder;
 use crate::contract_names::ContractNamesFetcher;
 use crate::debugger_trace::DebuggerTraceBuilder;
-use crate::enhance::enhance_call_tree_with_function_calls;
+use crate::function_calls::create_function_calls_map;
 use crate::state::ForkStateReader;
 use crate::transaction_extraction::extract_block_txs_info;
 use crate::transaction_extraction::extract_submitted_tx;
@@ -111,8 +111,8 @@ pub async fn simulate(
 
     let classes_debugger_data = fetch_classes_debugger_data(db_pool, s3_client, class_hashes).await;
 
-    let mut function_calls_map = enhance_call_tree_with_function_calls(
-        &mut contract_calls_map.0,
+    let mut function_calls_map = create_function_calls_map(
+        &mut contract_calls_map,
         next_call_id,
         &classes_debugger_data,
     );
@@ -160,7 +160,7 @@ pub async fn simulate(
     );
 
     ContractNamesFetcher::new(provider_client, chain_id.as_ref())
-        .enhance_call_tree_with_contract_names(&mut contract_calls_map.0)
+        .set_contract_names(&mut contract_calls_map)
         .await;
 
     let execution_result =
@@ -293,10 +293,7 @@ pub async fn simulate_by_calldata(
         Some(nonce) => nonce.0.to_u64(),
         None => None,
     };
-     let readable_chain_id = args.chain_id.as_ref().map(chain_id_to_readable_string);
-        .chain_id
-        .clone()
-        .map(|chain_id| chain_id_to_readable_string(&chain_id));
+    let readable_chain_id = args.chain_id.as_ref().map(chain_id_to_readable_string);
     let block_number = args.block_number.0;
     let sender_address = args.sender_address.0.to_string();
     let calldata = args
@@ -375,7 +372,7 @@ pub async fn simulate_transaction_by_hash(
                     let nonce = nonce.0.to_u64();
                     return Ok(TransactionSimulationResult {
                         simulation_result,
-                        chain_id: chain_id.map(|id| chain_id_to_readable_string(&id)),
+                        chain_id: chain_id.as_ref().map(chain_id_to_readable_string),
                         block_number,
                         block_timestamp: block_timestamp.0,
                         transaction_index_in_block,

@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use walnut_shared::felt_to_field_element;
 use walnut_shared::{bytes_to_text, get_voyager_api_url};
 
-use crate::contract_call::ContractCall;
+use crate::contract_calls_map::ContractCallsMap;
 
 pub struct ContractNamesFetcher {
     provider_client: JsonRpcClient<HttpTransport>,
@@ -41,10 +41,7 @@ impl ContractNamesFetcher {
         }
     }
 
-    pub async fn enhance_call_tree_with_contract_names(
-        &mut self,
-        contract_calls_map: &mut HashMap<u32, ContractCall>,
-    ) {
+    pub async fn set_contract_names(&mut self, contract_calls_map: &mut ContractCallsMap) {
         self.collect_contract_addresses(contract_calls_map);
         self.token_contract_names = self.fetch_token_contract_names().await;
         if let Some(voyager_api_url) = &self.voyager_api_url {
@@ -53,8 +50,8 @@ impl ContractNamesFetcher {
         self.update_simulation_call_trace(contract_calls_map);
     }
 
-    fn collect_contract_addresses(&mut self, contract_calls_map: &mut HashMap<u32, ContractCall>) {
-        for call in contract_calls_map.values() {
+    fn collect_contract_addresses(&mut self, contract_calls_map: &mut ContractCallsMap) {
+        for call in contract_calls_map.0.values() {
             if call.is_erc20_token {
                 self.token_addresses
                     .insert(call.entry_point.storage_address);
@@ -185,8 +182,8 @@ impl ContractNamesFetcher {
         }
     }
 
-    fn update_simulation_call_trace(&self, contract_calls_map: &mut HashMap<u32, ContractCall>) {
-        for call in contract_calls_map.values_mut() {
+    fn update_simulation_call_trace(&self, contract_calls_map: &mut ContractCallsMap) {
+        for call in contract_calls_map.0.values_mut() {
             if call.is_erc20_token {
                 if let Some(contract_name) = self
                     .token_contract_names
