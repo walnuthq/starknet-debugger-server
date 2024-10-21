@@ -1,5 +1,5 @@
+use internal_tracing::build_debugger_data::build_contract_call_debugger_data;
 use internal_tracing::function_calls_map::FunctionCallsMap;
-use internal_tracing::get_internal_trace_and_debugger_data;
 use internal_tracing::ClassDebuggerDataWithContractClass;
 use std::collections::HashMap;
 use tracing::debug;
@@ -20,7 +20,7 @@ pub fn create_function_calls_map(
             (Some(class_hash), Some(vm_memory), Some(vm_trace)) => {
                 match classes_debugger_data.get(class_hash) {
                     Some(full_class_debugger_data) => {
-                        match get_internal_trace_and_debugger_data(
+                        match build_contract_call_debugger_data(
                             vm_memory,
                             vm_trace,
                             full_class_debugger_data,
