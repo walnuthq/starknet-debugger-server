@@ -293,7 +293,7 @@ pub async fn simulate_by_calldata(
         Some(nonce) => nonce.0.to_u64(),
         None => None,
     };
-    let readable_chain_id = args
+     let readable_chain_id = args.chain_id.as_ref().map(chain_id_to_readable_string);
         .chain_id
         .clone()
         .map(|chain_id| chain_id_to_readable_string(&chain_id));
