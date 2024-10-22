@@ -56,6 +56,7 @@ impl ContractCallsMapBuilder {
             new_contract_call_id,
             0,
             0,
+            true, // Hide root contract call
         );
         contract_call_tree_builder.next_call_id += 1;
         contract_call_tree_builder
@@ -87,6 +88,7 @@ impl ContractCallsMapBuilder {
                         new_contract_call_id,
                         current_call_id,
                         nesting_level + 1,
+                        false,
                     );
 
                     if contract_call.is_failed {

@@ -47,6 +47,8 @@ pub struct ContractCall {
 
     pub code_location: Option<CodeLocation>,
     pub debugger_trace_step_index: Option<usize>,
+
+    pub is_hidden: bool,
 }
 
 impl ContractCall {
@@ -55,6 +57,7 @@ impl ContractCall {
         call_id: u32,
         parent_call_id: u32,
         contract_calls_nesting_level: u32,
+        is_hidden: bool,
     ) -> Self {
         let entry_point_name =
             get_name_of_entry_point_selector(&call_trace_ref.entry_point.entry_point_selector.0);
@@ -96,6 +99,8 @@ impl ContractCall {
 
             code_location: None,
             debugger_trace_step_index: None,
+
+            is_hidden,
         }
     }
 
