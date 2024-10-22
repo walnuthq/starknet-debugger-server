@@ -91,6 +91,7 @@ pub fn get_internal_call_trace(
         results: Vec::new(),
         code_location: entrypoint_cairo_locations.first().cloned(),
         debugger_trace_step_index: None,
+        is_hidden: true, // Hide root function call
     };
     *next_call_id += 1;
     function_calls_map
@@ -166,6 +167,7 @@ pub fn get_internal_call_trace(
                     results: Vec::new(),
                     code_location: cairo_locations.first().cloned(),
                     debugger_trace_step_index: None,
+                    is_hidden: false,
                 };
                 *next_call_id += 1;
                 function_calls_map

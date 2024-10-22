@@ -18,4 +18,6 @@ pub struct FunctionCall {
 
     pub debugger_trace_step_index: Option<usize>,
     pub code_location: Option<CodeLocation>,
+
+    pub is_hidden: bool,
 }
