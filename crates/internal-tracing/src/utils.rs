@@ -115,30 +115,6 @@ pub fn get_pc_to_ptr_sys_call_mappings(
         .collect()
 }
 
-// Returns the encoded instruction (the value at pc) and the immediate value (the value at
-// pc + 1, if it exists in the memory).
-pub fn get_instruction_encoding(
-    pc: usize,
-    memory: &[Option<Felt>],
-) -> Result<(Felt, Option<Felt>)> {
-    if memory[pc].is_none() {
-        return Err(Error::msg("Memory at pc is None"));
-    }
-    let instruction_encoding = memory
-        .get(pc)
-        .and_then(|value| value.clone())
-        .ok_or_else(|| {
-            anyhow::Error::msg(format!("Memory at pc = {} is None or out of bounds", pc))
-        })?;
-    let prime = BigUint::parse_bytes(PRIME_STR[2..].as_bytes(), 16)
-        .ok_or_else(|| anyhow::Error::msg("Failed to parse prime"))?;
-    let imm_addr = BigUint::from(pc + 1) % prime;
-    let imm_addr = usize::try_from(imm_addr.clone())
-        .map_err(|_| anyhow::Error::msg("Failed to convert imm_addr to usize"))?;
-    let optional_imm = memory[imm_addr].clone();
-    Ok((instruction_encoding, optional_imm))
-}
-
 #[derive(Serialize, Debug)]
 pub struct SierraFormattedProgram {
     pub type_declarations: Vec<String>,
