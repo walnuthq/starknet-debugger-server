@@ -8,7 +8,7 @@ use std::{env, fs};
 use tracing::error;
 use walkdir::WalkDir;
 
-use crate::utils::Manifest;
+use crate::manifest::Manifest;
 use crate::ClassVerificationData;
 
 pub const SUPPORTED_DOJO_ALPHA_VERSIONS: &[u8] = &[11, 12, 13, 14, 15, 16];

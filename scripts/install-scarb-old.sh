@@ -10,23 +10,13 @@ else
     FOLDER="x86_64"
 fi
 
-SOZO_URLS=(
-    "https://walnut-public-deployment-binaries.s3.amazonaws.com/sozo/$FOLDER/sozo-v1-0-0-alpha-11"
-    "https://walnut-public-deployment-binaries.s3.amazonaws.com/sozo/$FOLDER/sozo-v1-0-0-alpha-12"
-    "https://walnut-public-deployment-binaries.s3.amazonaws.com/sozo/$FOLDER/sozo-v1-0-0-alpha-13"
-    "https://walnut-public-deployment-binaries.s3.amazonaws.com/sozo/$FOLDER/sozo-v1-0-0-alpha-14"
-    "https://walnut-public-deployment-binaries.s3.amazonaws.com/sozo/$FOLDER/sozo-v1-0-0-alpha-15"
-    "https://walnut-public-deployment-binaries.s3.amazonaws.com/sozo/$FOLDER/sozo-v1-0-0-alpha-16"
-)
 SCARB_URLS=(
     "https://walnut-public-deployment-binaries.s3.amazonaws.com/scarb/$FOLDER/scarb_cairo_v_2_6_3"
     "https://walnut-public-deployment-binaries.s3.amazonaws.com/scarb/$FOLDER/scarb_cairo_v_2_6_4"
     "https://walnut-public-deployment-binaries.s3.amazonaws.com/scarb/$FOLDER/scarb_cairo_v_2_7_0"
-    "https://walnut-public-deployment-binaries.s3.amazonaws.com/scarb/$FOLDER/scarb_cairo_v_2_8_2"
 )
 
-# Create base directories if they don't exist
-mkdir -p binaries/sozo
+# Create base directory for scarb if it doesn't exist
 mkdir -p binaries/scarb
 
 # Function to download binaries
@@ -60,10 +50,7 @@ download_binaries() {
     done
 }
 
-# Download sozo binaries
-download_binaries "binaries/sozo" "${SOZO_URLS[@]}"
-
 # Download scarb binaries
 download_binaries "binaries/scarb" "${SCARB_URLS[@]}"
 
-echo "Binaries downloaded and placed in respective folders."
+echo "Scarb binaries downloaded and placed in respective folder."

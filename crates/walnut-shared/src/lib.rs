@@ -3,7 +3,7 @@ pub mod felt252_vec_compression;
 
 use std::string::FromUtf8Error;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use cairo_vm::vm::trace::trace_entry::RelocatedTraceEntry;
 use num_bigint::BigUint;
 use num_traits::Zero;
@@ -237,12 +237,43 @@ pub fn old_storage_diffs_to_storage_diffs(
 }
 
 pub fn get_name_of_entry_point_selector(entry_point_selector: &Felt) -> Option<String> {
-    // additional_info.entry_point_function_selector = Some(entry_point_selector.0.to_string()); TODO
-
     let entry_point_selector_str = entry_point_selector.to_fixed_hex_string();
     let selector = get_selector(&entry_point_selector_str);
     match selector {
         Some(name) => Some(name.to_string()),
         None => None,
     }
+}
+
+pub fn parse_version_string_to_tuple(version: &str) -> Result<(u32, u32, u32)> {
+    // Remove the leading 'v' if present
+    let version_str = version.trim_start_matches('v');
+
+    // Split the version string by '.'
+    let parts: Vec<&str> = version_str.split('.').collect();
+
+    // Ensure there are exactly three parts
+    if parts.len() != 3 {
+        return Err(anyhow::anyhow!("Invalid version string format"));
+    }
+
+    // Parse each part as a u32
+    let major = parts[0]
+        .parse::<u32>()
+        .map_err(|_| anyhow::anyhow!("Invalid major version"))?;
+    let minor = parts[1]
+        .parse::<u32>()
+        .map_err(|_| anyhow::anyhow!("Invalid minor version"))?;
+    let patch = parts[2]
+        .parse::<u32>()
+        .map_err(|_| anyhow::anyhow!("Invalid patch version"))?;
+
+    Ok((major, minor, patch))
+}
+
+pub fn tuple_to_version_string(version_tuple: (u32, u32, u32)) -> String {
+    format!(
+        "{}.{}.{}",
+        version_tuple.0, version_tuple.1, version_tuple.2
+    )
 }
