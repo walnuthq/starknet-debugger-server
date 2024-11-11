@@ -168,14 +168,13 @@ async fn verify(
 
         let json_data = serde_json::to_string(&verified_class_data)?;
 
-        // TODO: Uncomment this before commit
-        // s3_client
-        //     .put_object()
-        //     .bucket("walnutserver-east-1-classes-verification")
-        //     .key(format!("class-{}.json", class_hashes[i]))
-        //     .body(ByteStream::new(SdkBody::from(json_data)))
-        //     .send()
-        //     .await?;
+        s3_client
+            .put_object()
+            .bucket("walnutserver-east-1-classes-verification")
+            .key(format!("class-{}.json", class_hash))
+            .body(ByteStream::new(SdkBody::from(json_data)))
+            .send()
+            .await?;
 
         let _rec = sqlx::query!(
                 r#"

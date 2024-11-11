@@ -87,10 +87,18 @@ pub async fn fetch_classes_debugger_data(
                                             .filter_map(|c| {
                                                 let mut code_location =
                                                     CodeLocation::from_coverage(c);
-                                                if code_location.file_path.ends_with("[contract]") {
-                                                    code_location.file_path = code_location
+                                                if code_location
+                                                    .file_path
+                                                    .contains("tmp/verification")
+                                                {
+                                                    if code_location
                                                         .file_path
-                                                        .replace("[contract]", "");
+                                                        .ends_with("[contract]")
+                                                    {
+                                                        code_location.file_path = code_location
+                                                            .file_path
+                                                            .replace("[contract]", "");
+                                                    }
                                                     if let Some(pos) =
                                                         code_location.file_path.find("/src/")
                                                     {

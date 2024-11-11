@@ -20,7 +20,17 @@ const SUPPORTED_CAIRO_VERSIONS: &[(u32, u32, u32)] = &[(2, 8, 0), (2, 8, 2), (2,
 fn run_scarb_build(tmp_dir: &PathBuf, scarb_path: &str) -> Result<()> {
     let mut cmd = ScarbCommand::new();
     cmd.current_dir(tmp_dir);
-    let absolute_path = fs::canonicalize(scarb_path)?;
+    let absolute_path = match fs::canonicalize(scarb_path) {
+        Ok(path) => path,
+        Err(e) => {
+            let error_message = format!(
+                "Failed to canonicalize scarb path: {:?}. Scarb path: {:?}",
+                e, scarb_path
+            );
+            error!(error_message);
+            return Err(anyhow::anyhow!(error_message));
+        }
+    };
     cmd.scarb_path(absolute_path);
     cmd.arg("build");
     let scarb_cache_dir = env::current_dir()?.join(".cache/scarb");
