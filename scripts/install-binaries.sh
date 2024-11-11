@@ -10,6 +10,9 @@ else
     FOLDER="x86_64"
 fi
 
+SOZO_URLS=(
+    "https://walnut-public-deployment-binaries.s3.amazonaws.com/sozo/$FOLDER/sozo_v1.0.0"
+)
 SCARB_URLS=(
     "https://walnut-public-deployment-binaries.s3.amazonaws.com/scarb/$FOLDER/scarb_cairo_v_2_6_3"
     "https://walnut-public-deployment-binaries.s3.amazonaws.com/scarb/$FOLDER/scarb_cairo_v_2_6_4"
@@ -17,7 +20,8 @@ SCARB_URLS=(
     "https://walnut-public-deployment-binaries.s3.amazonaws.com/scarb/$FOLDER/scarb_cairo_v2.8.4"
 )
 
-# Create base directory for scarb if it doesn't exist
+# Create base directories if they don't exist
+mkdir -p binaries/sozo
 mkdir -p binaries/scarb
 
 # Function to download binaries
@@ -51,7 +55,10 @@ download_binaries() {
     done
 }
 
+# Download sozo binaries
+download_binaries "binaries/sozo" "${SOZO_URLS[@]}"
+
 # Download scarb binaries
 download_binaries "binaries/scarb" "${SCARB_URLS[@]}"
 
-echo "Scarb binaries downloaded and placed in respective folder."
+echo "Binaries downloaded and placed in respective folders."

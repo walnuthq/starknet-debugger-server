@@ -10,7 +10,7 @@ use walnut_shared::tuple_to_version_string;
 
 use crate::artifacts::read_scarb_artifacts;
 use crate::manifest::Manifest;
-
+use crate::sozo::run_sozo_build;
 use crate::ClassVerificationData;
 
 const SUPPORTED_OLD_CAIRO_VERSIONS: &[(u32, u32, u32)] = &[(2, 6, 3), (2, 6, 4), (2, 7, 0)];
@@ -178,12 +178,16 @@ pub fn build_with_scarb(
         ));
     }
 
-    let scarb_path = format!(
-        "binaries/scarb/scarb_cairo_v{}.{}.{}",
-        manifest.cairo_version.0, manifest.cairo_version.1, manifest.cairo_version.2
-    );
-
-    run_scarb_build(tmp_dir, &scarb_path)?;
+    if manifest.has_dojo_target {
+        let sozo_path = "binaries/sozo/sozo_v1.0.0";
+        run_sozo_build(tmp_dir, sozo_path)?;
+    } else {
+        let scarb_path = format!(
+            "binaries/scarb/scarb_cairo_v{}.{}.{}",
+            manifest.cairo_version.0, manifest.cairo_version.1, manifest.cairo_version.2
+        );
+        run_scarb_build(tmp_dir, &scarb_path)?;
+    }
 
     read_scarb_artifacts(tmp_dir, &manifest.package_name, "dev")
 }

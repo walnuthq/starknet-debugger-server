@@ -4,6 +4,7 @@ pub mod manifest;
 pub mod minimal_verification;
 pub mod s3;
 pub mod scarb;
+pub mod sozo;
 pub mod utils;
 pub mod verification;
 
