@@ -3,9 +3,11 @@ pub mod felt252_vec_compression;
 
 use anyhow::anyhow;
 use cairo_vm::vm::trace::trace_entry::RelocatedTraceEntry;
-use num_bigint::BigUint;
 use serde::Serialize;
-use starknet::core::types::{BlockId, BlockTag, ContractStorageDiffItem, Felt, StorageEntry};
+use starknet::core::types::{
+    BlockId, BlockTag, ContractStorageDiffItem, DeclaredClassItem, DeployedContractItem, Felt,
+    StorageEntry,
+};
 use starknet_api::core::ChainId;
 use starknet_old::core::types as starknet_old_types;
 use starknet_providers::jsonrpc::{HttpTransport, JsonRpcClient};
@@ -72,11 +74,11 @@ pub fn rpc_url(chain_id: &ChainId) -> Url {
     }
 }
 
-pub fn get_voyager_api_url(chain_id: &ChainId) -> &str {
+pub fn get_voyager_api_url(chain_id: &ChainId) -> Option<&str> {
     match chain_id {
-        ChainId::Mainnet => "https://api.voyager.online/beta/",
-        ChainId::Sepolia => "https://sepolia-api.voyager.online/beta",
-        _ => panic!("Invalid chain id"),
+        ChainId::Mainnet => Some("https://api.voyager.online/beta/"),
+        ChainId::Sepolia => Some("https://sepolia-api.voyager.online/beta"),
+        _ => None,
     }
 }
 
@@ -96,6 +98,7 @@ pub fn chain_id_to_readable_string(chain_id: &ChainId) -> String {
     match chain_id {
         ChainId::Mainnet => String::from("sn_main"),
         ChainId::Sepolia => String::from("sn_sepolia"),
+        ChainId::Other(chain_id) => chain_id.clone(),
         _ => panic!("Invalid chain id"),
     }
 }
@@ -114,26 +117,33 @@ pub fn felt_vec_to_hex_vec(felt_array: Vec<Felt>) -> Vec<String> {
     hex_representation
 }
 
-pub fn decode_felt(felt_array: Vec<Felt>) -> Result<String, std::str::Utf8Error> {
-    //convert do decimal string representation
-    let decimal_arrays = felt_array
-        .iter()
-        .map(|felt| felt.to_string())
-        .collect::<Vec<String>>();
-    let decimal_string = decimal_arrays.join(", ");
-    //convert to hex representation
-    let hex_representation = BigUint::parse_bytes(decimal_string.as_bytes(), 10)
-        .expect("Failed to parse BigUint")
-        .to_str_radix(16);
-    //conver it to bytes
-    let bytes: Vec<u8> = hex_representation
-        .as_bytes()
-        .chunks(2)
-        .map(|chunk| u8::from_str_radix(std::str::from_utf8(chunk).unwrap(), 16).unwrap())
-        .collect();
-    //get human readable text
-    let text = String::from_utf8_lossy(&bytes);
-    Ok(text.to_string())
+pub fn felts_to_string(felts: &[Felt]) -> Vec<String> {
+    let mut decoded_strings = Vec::new();
+
+    for felt in felts {
+        // Convert Felt to BigUint
+        let value = felt.to_biguint();
+
+        // Convert BigUint to bytes (big-endian)
+        let mut felt_bytes = value.to_bytes_be();
+
+        // Remove leading zeros (optional)
+        while let Some(0) = felt_bytes.first() {
+            felt_bytes.remove(0);
+        }
+
+        // Attempt to decode bytes into a String
+        match String::from_utf8(felt_bytes.clone()) {
+            Ok(s) => decoded_strings.push(s),
+            Err(_) => {
+                // Include the raw hexadecimal representation
+                let hex_repr = format!("0x{}", hex::encode(&felt_bytes));
+                decoded_strings.push(hex_repr);
+            }
+        }
+    }
+
+    decoded_strings
 }
 
 pub fn clone_vm_trace(vm_trace: &Vec<RelocatedTraceEntry>) -> Vec<RelocatedTraceEntry> {
@@ -221,6 +231,30 @@ pub fn old_storage_diffs_to_storage_diffs(
                     value: field_element_to_felt(storage_entry.value),
                 })
                 .collect(),
+        })
+        .collect()
+}
+
+pub fn old_deploy_contracts_to_deploy_contracts(
+    old_deploy_contracts: Vec<starknet_old_types::DeployedContractItem>,
+) -> Vec<DeployedContractItem> {
+    old_deploy_contracts
+        .into_iter()
+        .map(|old_deploy_contract| DeployedContractItem {
+            address: field_element_to_felt(old_deploy_contract.address),
+            class_hash: field_element_to_felt(old_deploy_contract.class_hash),
+        })
+        .collect()
+}
+
+pub fn old_declared_classes_to_declared_classes(
+    old_declared_classes: Vec<starknet_old_types::DeclaredClassItem>,
+) -> Vec<DeclaredClassItem> {
+    old_declared_classes
+        .into_iter()
+        .map(|old_declared_class| DeclaredClassItem {
+            class_hash: field_element_to_felt(old_declared_class.class_hash),
+            compiled_class_hash: field_element_to_felt(old_declared_class.compiled_class_hash),
         })
         .collect()
 }

@@ -25,8 +25,9 @@ use num_bigint::BigInt;
 use num_traits::cast::ToPrimitive;
 use smol_str::SmolStr;
 use std::collections::{HashMap, HashSet};
+use tracing::{debug, warn};
 use verification::{CodeLocation, SierraStatementToCairoDebugInfo};
-use walnut_shared::decode_felt;
+use walnut_shared::felts_to_string;
 
 use crate::{
     call_trace::{ContractCall, ESysCall, InternalFnCallIO},
@@ -53,10 +54,12 @@ pub struct Mappings {
 impl Mappings {
     pub fn new(
         relocated_memory: &Vec<Option<Felt>>,
-        vm_trace: &Vec<RelocatedTraceEntry>,
         contract_class: ContractClass,
     ) -> Result<Self> {
-        let sierra_program = contract_class.extract_sierra_program()?;
+        let sierra_program = contract_class.extract_sierra_program().map_err(|e| {
+            warn!("Failed to extract sierra program: {:?}", e);
+            e
+        })?;
         //dbg!(&sierra_program.type_declarations);
         //dbg!(format_sierra_program(sierra_program.clone()));
         let type_names = contract_class
@@ -64,9 +67,14 @@ impl Mappings {
             .clone()
             .unwrap()
             .type_names;
-        let casm_program = compile_sierra_contract_class(contract_class, usize::MAX)?;
+        let casm_program =
+            compile_sierra_contract_class(contract_class, usize::MAX).map_err(|e| {
+                warn!("Failed to compile sierra contract class: {:?}", e);
+                e
+            })?;
+
         let casm_to_sierra_map = make_casm_to_sierra_map(&casm_program.debug_info);
-        let (_pc_inst_map, pc_to_inst_indexes_map) = get_pc_mappings(relocated_memory, vm_trace)?;
+        let pc_to_inst_indexes_map = get_pc_mappings(&casm_program.instructions);
 
         let pc_to_ptr_sys_calls =
             get_pc_to_ptr_sys_call_mappings(&casm_program.instructions, &pc_to_inst_indexes_map);
@@ -76,7 +84,10 @@ impl Mappings {
             .filter_map(|(i, x)| x.as_ref().map(|v| (i + 1, v.to_bigint())))
             .collect();
         let sierra_program_registry: ProgramRegistry<CoreType, CoreLibfunc> =
-            ProgramRegistry::<CoreType, CoreLibfunc>::new(&sierra_program).unwrap();
+            ProgramRegistry::<CoreType, CoreLibfunc>::new(&sierra_program).map_err(|e| {
+                warn!("Failed to create sierra program registry: {:?}", e);
+                e
+            })?;
         let type_sizes =
             get_type_size_map(&sierra_program, &sierra_program_registry).unwrap_or_default();
         let type_declaration_map: HashMap<ConcreteTypeId, TypeDeclaration> = sierra_program
@@ -110,18 +121,24 @@ impl Mappings {
     }
 
     pub fn get_sierra_indexes_at_pc(&self, pc: &usize) -> Option<Vec<usize>> {
-        let casm_index = self
-            .pc_to_inst_indexes_map
-            .get(pc)
-            .expect("Failed to get casm index");
+        let casm_index = match self.pc_to_inst_indexes_map.get(pc) {
+            Some(index) => index,
+            None => {
+                debug!("Failed to get casm index for pc: {}", pc);
+                return None;
+            }
+        };
         self.casm_to_sierra_map.get(casm_index).cloned()
     }
 
     pub fn get_first_sierra_index_at_pc(&self, pc: &usize) -> Option<usize> {
-        let casm_index = self
-            .pc_to_inst_indexes_map
-            .get(pc)
-            .expect("Failed to get casm index");
+        let casm_index = match self.pc_to_inst_indexes_map.get(pc) {
+            Some(index) => index,
+            None => {
+                debug!("Failed to get casm index for pc: {}", pc);
+                return None;
+            }
+        };
         self.casm_to_sierra_map
             .get(casm_index)
             .map_or(None, |sierra_indexes| sierra_indexes.first().cloned())
@@ -294,15 +311,17 @@ impl Mappings {
                             .get(index)
                             .and_then(|opt| *opt)
                             .expect("Failed to get panic reason from relocated_memory");
-                        let panic_reason_decoded = decode_felt(vec![panic_reason]).unwrap();
+                        let decoded_strings = felts_to_string(&[panic_reason]);
+                        let panic_string = decoded_strings.first().cloned().unwrap_or_default();
+
                         results.push(InternalFnCallIO {
                             type_name: Some(simplified_type_name.clone()),
-                            value: vec!["1".to_string(), panic_reason_decoded.clone()],
+                            value: vec!["1".to_string(), panic_string.clone()],
                         });
                         results_decoded.push(create_decoded_value(
                             None,
                             "Panic",
-                            DecodedValueType::String(panic_reason_decoded),
+                            DecodedValueType::String(panic_string),
                         ));
                     } else {
                         let type_id = &return_ref.ty;
@@ -314,7 +333,10 @@ impl Mappings {
                             relocated_memory,
                             &mut data_index,
                         ) {
-                            results_decoded.push(decoded_element);
+                            if let Some(adjusted_element) = adjust_decoded_element(decoded_element)
+                            {
+                                results_decoded.push(adjusted_element);
+                            }
                         }
                         if !skip_builtin_type_declaration(simplified_type_name.as_str()) {
                             results.push(InternalFnCallIO {
@@ -381,6 +403,59 @@ impl Mappings {
             None => None,
         }
     }
+}
+
+pub fn adjust_decoded_element(decoded_element: DecodedValue) -> Option<DecodedValue> {
+    match &decoded_element.value {
+        // Remove "Unit", "ContractState", or "ComponentState" elements
+        DecodedValueType::Struct(fields) if decoded_element.type_name.starts_with('(') => {
+            let mut new_fields = HashMap::new();
+            for (key, value) in fields {
+                // Exclude fields with type_name "Unit", "ContractState", or starting with "ComponentState"
+                if value.type_name != "Unit"
+                    && value.type_name != "ContractState"
+                    && !value.type_name.contains("ComponentState")
+                {
+                    new_fields.insert(*key, value.clone());
+                }
+            }
+
+            if new_fields.len() == 1 {
+                return new_fields.into_values().next();
+            }
+            if new_fields.is_empty() {
+                return None;
+            }
+            return Some(DecodedValue {
+                name: decoded_element.name.clone(),
+                type_name: decoded_element.type_name.clone(),
+                value: DecodedValueType::Struct(new_fields),
+            });
+        }
+
+        // Unwrap nested structures with the same type name
+        DecodedValueType::Struct(fields) if fields.len() == 1 => {
+            let (_, nested_value) = fields.iter().next().unwrap();
+            if nested_value.type_name == decoded_element.type_name {
+                return Some(nested_value.clone());
+            }
+        }
+
+        // Exclude ComponentState<ContractState> from results
+        _ if decoded_element.type_name.contains("ComponentState") => {
+            return None;
+        }
+
+        // If the type_name is "Unit" and it's not part of a tuple, exclude it
+        _ if decoded_element.type_name == "Unit" => {
+            return None;
+        }
+
+        // Otherwise, return the original decoded_element
+        _ => {}
+    }
+
+    Some(decoded_element)
 }
 
 pub fn get_values_from_cell_expressions(

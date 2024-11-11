@@ -1,7 +1,9 @@
+use starknet::core::types::Felt;
 use starknet_old::core::types as starknet_old_types;
 use starknet_providers::jsonrpc::HttpTransport;
 use starknet_providers::JsonRpcClient;
 use starknet_providers::Provider;
+use walnut_shared::felts_to_string;
 use walnut_shared::field_element_to_felt;
 use walnut_shared::vec_field_element_to_vec_felt;
 
@@ -14,7 +16,6 @@ use blockifier::transaction::objects::{
 };
 use blockifier::transaction::transaction_types::TransactionType;
 use blockifier::versioned_constants::VersionedConstants;
-use starknet::core::types::Felt;
 use starknet_api::block::BlockTimestamp;
 use std::sync::Arc;
 
@@ -26,6 +27,7 @@ use starknet_api::transaction::{
 use starknet_api::{contract_address, felt, patricia_key};
 use walnut_shared::{ETH_FEE_TOKEN_ADDRESS, STRK_FEE_TOKEN_ADDRESS};
 
+use crate::transaction_info::TransactionInformation;
 use crate::SimulationArgs;
 use crate::TransactionSimulationError;
 
@@ -73,7 +75,7 @@ pub fn extract_submitted_tx(
                 starknet_old_types::DeclareTransaction::V0(tx) => Some((
                     Nonce::default(),
                     field_element_to_felt(tx.sender_address).try_into().unwrap(),
-                    Calldata::default(),
+                    Calldata(vec_field_element_to_vec_felt(vec![tx.class_hash]).into()),
                     TransactionVersion::ZERO,
                     TransactionType::Declare,
                     TransactionSignature(vec_field_element_to_vec_felt(tx.signature).into()),
@@ -81,7 +83,7 @@ pub fn extract_submitted_tx(
                 starknet_old_types::DeclareTransaction::V1(tx) => Some((
                     Nonce(field_element_to_felt(tx.nonce)),
                     field_element_to_felt(tx.sender_address).try_into().unwrap(),
-                    Calldata::default(),
+                    Calldata(vec_field_element_to_vec_felt(vec![tx.class_hash]).into()),
                     TransactionVersion::ONE,
                     TransactionType::Declare,
                     TransactionSignature(vec_field_element_to_vec_felt(tx.signature).into()),
@@ -89,7 +91,7 @@ pub fn extract_submitted_tx(
                 starknet_old_types::DeclareTransaction::V2(tx) => Some((
                     Nonce(field_element_to_felt(tx.nonce)),
                     field_element_to_felt(tx.sender_address).try_into().unwrap(),
-                    Calldata::default(),
+                    Calldata(vec_field_element_to_vec_felt(vec![tx.class_hash]).into()),
                     TransactionVersion::TWO,
                     TransactionType::Declare,
                     TransactionSignature(vec_field_element_to_vec_felt(tx.signature).into()),
@@ -97,7 +99,7 @@ pub fn extract_submitted_tx(
                 starknet_old_types::DeclareTransaction::V3(tx) => Some((
                     Nonce(field_element_to_felt(tx.nonce)),
                     field_element_to_felt(tx.sender_address).try_into().unwrap(),
-                    Calldata::default(),
+                    Calldata(vec_field_element_to_vec_felt(vec![tx.class_hash]).into()),
                     TransactionVersion::THREE,
                     TransactionType::Declare,
                     TransactionSignature(vec_field_element_to_vec_felt(tx.signature).into()),
@@ -128,8 +130,9 @@ pub fn extract_transaction_receipt(
 pub async fn extract_block_txs_info(
     provider_client: &JsonRpcClient<HttpTransport>,
     simulation_args: &SimulationArgs,
+    block_number: u64,
 ) -> Result<(BlockTimestamp, usize), TransactionSimulationError> {
-    let block_id = starknet_old_types::BlockId::Number(simulation_args.block_number.0);
+    let block_id = starknet_old_types::BlockId::Number(block_number);
     let block_with_txs = provider_client.get_block_with_txs(block_id).await;
     match block_with_txs {
         Ok(starknet_old_types::MaybePendingBlockWithTxs::Block(block_txs)) => {
@@ -158,111 +161,42 @@ pub fn extract_transaction_index(
     0
 }
 
-// TODO: Find a better way to do this
 fn match_transaction(tx: &starknet_old_types::Transaction, args: &SimulationArgs) -> bool {
-    let sender_address = Felt::from(*args.sender_address.0);
-    let nonce = args.nonce.as_ref().map(|n| Felt::from(n.0));
-    match tx {
-        starknet_old_types::Transaction::Invoke(invoke_tx) => {
-            match (invoke_tx, args.transaction_version.0) {
-                (starknet_old_types::InvokeTransaction::V0(tx_v0), version)
-                    if version == Felt::ZERO =>
-                {
-                    sender_address == field_element_to_felt(tx_v0.contract_address)
-                        && args.calldata == vec_field_element_to_vec_felt(tx_v0.calldata.clone())
-                }
-                (starknet_old_types::InvokeTransaction::V1(tx_v1), version)
-                    if version == Felt::ONE =>
-                {
-                    sender_address == field_element_to_felt(tx_v1.sender_address)
-                        && args.calldata == vec_field_element_to_vec_felt(tx_v1.calldata.clone())
-                        && nonce
-                            .as_ref()
-                            .map_or(false, |n| *n == field_element_to_felt(tx_v1.nonce))
-                }
-                (starknet_old_types::InvokeTransaction::V3(tx_v3), version)
-                    if version == Felt::THREE =>
-                {
-                    sender_address == field_element_to_felt(tx_v3.sender_address)
-                        && args.calldata == vec_field_element_to_vec_felt(tx_v3.calldata.clone())
-                        && nonce
-                            .as_ref()
-                            .map_or(false, |n| *n == field_element_to_felt(tx_v3.nonce))
-                }
-                _ => false,
-            }
-        }
-        starknet_old_types::Transaction::L1Handler(l1_handler_tx) => {
-            let version: Felt = args.transaction_version.0;
-            let l1_hanler_version: Felt = field_element_to_felt(l1_handler_tx.version);
-            let _l1_handler_nonce: Felt = Felt::from(l1_handler_tx.nonce);
-            version == l1_hanler_version
-                && sender_address == field_element_to_felt(l1_handler_tx.contract_address)
-                && args.calldata == vec_field_element_to_vec_felt(l1_handler_tx.calldata.clone())
-                && nonce
-                    .as_ref()
-                    .map_or(false, |n| *n == Felt::from(l1_handler_tx.nonce))
-        }
-        starknet_old_types::Transaction::Declare(declare_tx) => {
-            match (declare_tx, args.transaction_version.0) {
-                (starknet_old_types::DeclareTransaction::V0(tx_v0), version)
-                    if version == Felt::ZERO =>
-                {
-                    sender_address == field_element_to_felt(tx_v0.sender_address)
-                }
-                (starknet_old_types::DeclareTransaction::V1(tx_v1), version)
-                    if version == Felt::ONE =>
-                {
-                    sender_address == field_element_to_felt(tx_v1.sender_address)
-                        && nonce
-                            .as_ref()
-                            .map_or(false, |n| *n == field_element_to_felt(tx_v1.nonce))
-                }
-                (starknet_old_types::DeclareTransaction::V2(tx_v2), version)
-                    if version == Felt::TWO =>
-                {
-                    sender_address == field_element_to_felt(tx_v2.sender_address)
-                        && nonce
-                            .as_ref()
-                            .map_or(false, |n| *n == field_element_to_felt(tx_v2.nonce))
-                }
-                (starknet_old_types::DeclareTransaction::V3(tx_v3), version)
-                    if version == Felt::THREE =>
-                {
-                    sender_address == field_element_to_felt(tx_v3.sender_address)
-                        && nonce
-                            .as_ref()
-                            .map_or(false, |n| *n == field_element_to_felt(tx_v3.nonce))
-                }
-                _ => false,
-            }
-        }
-        starknet_old_types::Transaction::Deploy(deploy_tx) => {
-            let version: Felt = args.transaction_version.0;
-            let deploy_version: Felt = field_element_to_felt(deploy_tx.version);
-            version == deploy_version
-                && args.calldata
-                    == vec_field_element_to_vec_felt(deploy_tx.constructor_calldata.clone())
-        }
-        starknet_old_types::Transaction::DeployAccount(deploy_account_tx) => {
-            match deploy_account_tx {
-                starknet_old_types::DeployAccountTransaction::V1(tx_v1) => {
-                    args.calldata
-                        == vec_field_element_to_vec_felt(tx_v1.constructor_calldata.clone())
-                        && nonce
-                            .as_ref()
-                            .map_or(false, |n| *n == field_element_to_felt(tx_v1.nonce))
-                }
-                starknet_old_types::DeployAccountTransaction::V3(tx_v3) => {
-                    args.calldata
-                        == vec_field_element_to_vec_felt(tx_v3.constructor_calldata.clone())
-                        && nonce
-                            .as_ref()
-                            .map_or(false, |n| *n == field_element_to_felt(tx_v3.nonce))
-                }
-            }
+    let sender_address = *args.sender_address.0;
+    let nonce = args.nonce.as_ref().map(|n| n.0);
+    let version = args.transaction_version.0;
+
+    if tx.version() != version {
+        return false;
+    }
+
+    if let Some(tx_sender_address) = tx.sender_address() {
+        if tx_sender_address != sender_address {
+            return false;
         }
     }
+
+    if let Some(arg_nonce) = nonce {
+        if let Some(tx_nonce) = tx.nonce() {
+            if tx_nonce != arg_nonce {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    if !args.calldata.0.is_empty() {
+        if let Some(tx_calldata) = tx.calldata() {
+            if args.calldata.0.to_vec() != tx_calldata {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    true
 }
 
 pub fn extract_transaction_contex(
@@ -271,20 +205,16 @@ pub fn extract_transaction_contex(
     transaction_signature: &Option<TransactionSignature>,
     transaction_hash: &Option<TransactionHash>,
     nonce: &Option<Nonce>,
-    chain_id: Option<ChainId>,
+    chain_id: ChainId,
     block_info: &BlockInfo,
 ) -> Arc<TransactionContext> {
     // Create a chain-specific block context
-    let chain_info = if let Some(chain_id) = chain_id {
-        ChainInfo {
-            chain_id,
-            fee_token_addresses: FeeTokenAddresses {
-                strk_fee_token_address: contract_address!(STRK_FEE_TOKEN_ADDRESS),
-                eth_fee_token_address: contract_address!(ETH_FEE_TOKEN_ADDRESS),
-            },
-        }
-    } else {
-        ChainInfo::default()
+    let chain_info = ChainInfo {
+        chain_id,
+        fee_token_addresses: FeeTokenAddresses {
+            strk_fee_token_address: contract_address!(STRK_FEE_TOKEN_ADDRESS),
+            eth_fee_token_address: contract_address!(ETH_FEE_TOKEN_ADDRESS),
+        },
     };
 
     Arc::new(TransactionContext {
@@ -311,4 +241,14 @@ pub fn extract_transaction_contex(
             account_deployment_data: Default::default(),
         }),
     })
+}
+
+pub fn extract_chain_id_from_felt(
+    chain_id_felt: Felt,
+) -> Result<ChainId, TransactionSimulationError> {
+    let chain_id_string = felts_to_string(&[chain_id_felt])
+        .first()
+        .cloned()
+        .unwrap_or_default();
+    Ok(ChainId::Other(chain_id_string))
 }

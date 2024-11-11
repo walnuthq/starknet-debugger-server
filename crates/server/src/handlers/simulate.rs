@@ -1,4 +1,5 @@
 use crate::app_state::AppState;
+use axum::extract::Query;
 use axum::{
     debug_handler,
     extract::{Path, State},
@@ -7,11 +8,12 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use simulate::{SimulationArgs, SimulationRawArgs};
+use simulate::{
+    simulate::{simulate_by_calldata, simulate_transaction_by_hash},
+    SimulationArgs, SimulationRawArgs,
+};
 use std::sync::Arc;
-use axum::extract::Query;
 use url::Url;
-use simulate::simulate::{simulate_by_calldata, simulate_transaction_by_hash};
 use walnut_shared::{extract_chain_id, rpc_url};
 use crate::telegram_bot_service::{send_telegram_notification_calldata, send_telegram_notification_custom_rpc, send_telegram_notification_tx_id};
 
@@ -27,7 +29,6 @@ pub struct SimulationTxHashArgs {
     pub tx_hash: String,
 }
 
-
 #[derive(Debug, Deserialize)]
 pub struct QueryParams {
     skip_tracking: Option<String>,
@@ -41,7 +42,9 @@ pub async fn simulate_transaction(
 ) -> Response {
     let simulation_info = match payload {
         SimulationPayload::WithCalldata(args) => {
-            let simulation_args: SimulationArgs = match args.try_into() {
+            let simulation_args: SimulationArgs = match SimulationArgs::try_from_raw_args(args)
+                .await
+            {
                 Ok(args) => args,
                 Err(e) => return (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response(),
             };
@@ -64,7 +67,7 @@ pub async fn simulate_transaction(
                 &state.db_pool,
                 &state.s3_client,
                 rpc_url,
-                args.tx_hash,
+                &args.tx_hash,
                 None,
             )
             .await
@@ -98,7 +101,7 @@ pub async fn simulate_transaction_by_hash_handler(
         &state.db_pool,
         &state.s3_client,
         rpc_url,
-        tx_hash,
+        &tx_hash,
         Some(chain_id),
     )
     .await;
