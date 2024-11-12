@@ -6,26 +6,33 @@ use simulate::{SimulationArgs, SimulationRawArgs};
 
 pub async fn send_telegram_notification_tx_id(tx_id: &str, chain_id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let message = format!("New transaction [{chain_id}]: https://app.walnut.dev/transactions?chainId={chain_id}&txHash={tx_id}&skip_tracking=true");
-    println!("mam to ziomek: {}", message);
-    // send_telegram_notification(message.as_str())
-    Ok(())
+    send_telegram_notification(message.as_str())
 }
 
 pub async fn send_telegram_notification_custom_rpc(tx_id: &str, rpc_url: &str) -> Result<(), Box<dyn std::error::Error>> {
     let message = format!("New transaction [custom RPC]: https://app.walnut.dev/transactions?rpcUrl={}&txHash={}&skip_tracking=true", encode(rpc_url), tx_id);
-    println!("mam to ziomek custom rpc: {}", message);
-    Ok(())
-    // send_telegram_notification(message.as_str())
+    send_telegram_notification(message.as_str())
 }
 
 pub async fn send_telegram_notification_calldata(simulation_args: &SimulationArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let message = format!("New transaction [calldata]: https://app.walnut.dev/transactions?senderAddress={}&calldata={:?}&transactionVersion={}&blockNumber={}&rpcUrl={}&skip_tracking=true",
-        simulation_args.sender_address,
-        simulation_args.calldata,
-        simulation_args.transaction_version.to_string(),
-        simulation_args.block_number,
-        encode(simulation_args.rpc_url.as_str()),
-    );
+    let calldata_string = simulation_args.calldata.0.iter().map(|x| format!("{:?}", x)).collect::<Vec<String>>().join(",");
+    let calldata = encode(&calldata_string);
+    let message = match simulation_args.chain_id {
+        ChainId::Mainnet | ChainId::Sepolia => format!("New transaction [simulation]: https://app.walnut.dev/simulations?senderAddress={}&calldata={}&transactionVersion={}&blockNumber={}&chainId={}&skip_tracking=true",
+            simulation_args.sender_address,
+            calldata,
+            simulation_args.transaction_version.to_string(),
+            simulation_args.block_number.unwrap(),
+            simulation_args.chain_id,
+        ),
+        _ => format!("New transaction [simulation]: https://app.walnut.dev/simulations?senderAddress={}&calldata={}&transactionVersion={}&blockNumber={}&rpcUrl={}&skip_tracking=true",
+            simulation_args.sender_address,
+            calldata,
+            simulation_args.transaction_version.to_string(),
+            simulation_args.block_number.unwrap(),
+            encode(simulation_args.rpc_url.as_str()),
+        ),
+    };
     println!("mam to ziomek calldata: {}", message);
     Ok(())
     // send_telegram_notification(message.as_str())
