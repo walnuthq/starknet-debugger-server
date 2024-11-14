@@ -111,6 +111,9 @@ pub async fn simulate(
         &classes_debugger_data,
     );
 
+    //After checking all function_calls, verify if there are any contract calls that are not handled by a system call. Specifically,
+    //check for the first contract calls made by the execute_multicall from the account that need to be a child of the execute function call.
+    //If such calls exist, add them as children of the execute function call.
     if let Some((&id, function_call)) = function_calls_map
         .0
         .iter_mut()
