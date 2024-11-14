@@ -112,7 +112,7 @@ pub async fn simulate(
         &classes_debugger_data,
     );
 
-    additinal_process_contract_calls(&contract_calls_map, &mut function_calls_map);
+    additinal_process_contract_calls(&mut contract_calls_map, &function_calls_map);
 
     let mut event_abis: Vec<EventAbi> = Vec::new();
 
@@ -184,40 +184,20 @@ pub async fn simulate(
 }
 
 fn additinal_process_contract_calls(
-    contract_calls_map: &ContractCallsMap,
-    function_calls_map: &mut FunctionCallsMap,
+    contract_calls_map: &mut ContractCallsMap,
+    function_calls_map: &FunctionCallsMap,
 ) {
-    for contract_call in contract_calls_map.0.values().filter(|c| !c.is_hidden) {
+    for contract_call in contract_calls_map.0.values_mut().filter(|c| !c.is_hidden) {
         for &child_id in &contract_call.children_call_ids {
-            if !function_calls_map
-                .0
-                .values()
-                .any(|fc| fc.children_call_ids.contains(&child_id))
+            if contract_call.function_call_id.is_some()
+                && !function_calls_map
+                    .0
+                    .values()
+                    .any(|fc| fc.children_call_ids.contains(&child_id))
             {
-                if let Some(mut current_function_call_id) = contract_call.function_call_id {
-                    while let Some(function_call) =
-                        function_calls_map.0.get_mut(&current_function_call_id)
-                    {
-                        if function_call.children_call_ids.is_empty() {
-                            if let Some(child_contract_call) = contract_calls_map.0.get(&child_id) {
-                                let child_id_contract_address =
-                                    child_contract_call.entry_point.storage_address;
-                                warn!(
-                                    "Adding new contract call id: {} to function call id {}. The contract {:?} was not added by decoding system calls.",
-                                    child_id,
-                                    current_function_call_id,
-                                    child_id_contract_address
-                                );
-                                function_call.children_call_ids.push(child_id);
-                                break;
-                            }
-                        }
-                        current_function_call_id = *function_call
-                            .children_call_ids
-                            .last()
-                            .unwrap_or(&current_function_call_id);
-                    }
-                }
+                warn!("Hide function calls of the contract {:?} that has the contract call to the one that was not added by decoding system calls.",
+                    contract_call.entry_point.storage_address);
+                contract_call.function_call_id = None;
             }
         }
     }
