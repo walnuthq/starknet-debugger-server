@@ -40,7 +40,7 @@ use starknet_old::core::types as starknet_old_types;
 use starknet_providers::Provider;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::info;
+use tracing::warn;
 use url::Url;
 use walnut_shared::felt_to_field_element;
 use walnut_shared::felt_vec_to_hex_vec;
@@ -129,7 +129,7 @@ pub async fn simulate(
             let contract_call_id = function_call.contract_call_id;
             if let Some(contract_call) = contract_calls_map.0.get(&contract_call_id) {
                 for &new_id in &contract_call.children_call_ids {
-                    info!(
+                    warn!(
                     "Adding new contract call id: {} to the execute_multicall function call id {}. The contract {:?} was not added by decoding system calls.",
                     new_id, id, contract_call.entry_point.storage_address
                 );
