@@ -40,6 +40,7 @@ use starknet_old::core::types as starknet_old_types;
 use starknet_providers::Provider;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::info;
 use url::Url;
 use walnut_shared::felt_to_field_element;
 use walnut_shared::felt_vec_to_hex_vec;
@@ -109,6 +110,33 @@ pub async fn simulate(
         next_call_id,
         &classes_debugger_data,
     );
+
+    if let Some((&id, function_call)) = function_calls_map
+        .0
+        .iter_mut()
+        .filter(|(_, function_call)| {
+            function_call
+                .fn_name
+                .as_ref()
+                .map_or(false, |name| name.contains("execute_multicall"))
+        })
+        .min_by_key(|(&id, _)| id)
+    {
+        if function_call.children_call_ids.is_empty() {
+            let contract_call_id = function_call.contract_call_id;
+            if let Some(contract_call) = contract_calls_map.0.get(&contract_call_id) {
+                for &new_id in &contract_call.children_call_ids {
+                    info!(
+                    "Adding new contract call id: {} to the execute_multicall function call id {}. The contract {:?} was not added by decoding system calls.",
+                    new_id, id, contract_call.entry_point.storage_address
+                );
+                    if !function_call.children_call_ids.contains(&new_id) {
+                        function_call.children_call_ids.push(new_id);
+                    }
+                }
+            }
+        }
+    }
 
     let mut event_abis: Vec<EventAbi> = Vec::new();
 
