@@ -65,6 +65,7 @@ use crate::utils::transaction_type_to_string;
 use crate::ContractCall;
 use crate::ContractCallEvent;
 use crate::EventAbi;
+use crate::FunctionCallsMap;
 use crate::SimulationArgs;
 use crate::SimulationInfo;
 use crate::TransactionSimulationError;
@@ -111,35 +112,7 @@ pub async fn simulate(
         &classes_debugger_data,
     );
 
-    //After checking all function_calls, verify if there are any contract calls that are not handled by a system call. Specifically,
-    //check for the first contract calls made by the execute_multicall from the account that need to be a child of the execute function call.
-    //If such calls exist, add them as children of the execute function call.
-    if let Some((&id, function_call)) = function_calls_map
-        .0
-        .iter_mut()
-        .filter(|(_, function_call)| {
-            function_call
-                .fn_name
-                .as_ref()
-                .map_or(false, |name| name.contains("execute_multicall"))
-        })
-        .min_by_key(|(&id, _)| id)
-    {
-        if function_call.children_call_ids.is_empty() {
-            let contract_call_id = function_call.contract_call_id;
-            if let Some(contract_call) = contract_calls_map.0.get(&contract_call_id) {
-                for &new_id in &contract_call.children_call_ids {
-                    warn!(
-                    "Adding new contract call id: {} to the execute_multicall function call id {}. The contract {:?} was not added by decoding system calls.",
-                    new_id, id, contract_call.entry_point.storage_address
-                );
-                    if !function_call.children_call_ids.contains(&new_id) {
-                        function_call.children_call_ids.push(new_id);
-                    }
-                }
-            }
-        }
-    }
+    additinal_process_contract_calls(&contract_calls_map, &mut function_calls_map);
 
     let mut event_abis: Vec<EventAbi> = Vec::new();
 
@@ -208,6 +181,46 @@ pub async fn simulate(
     };
 
     Ok((simulation_info, block_timestamp, transaction_index))
+}
+
+fn additinal_process_contract_calls(
+    contract_calls_map: &ContractCallsMap,
+    function_calls_map: &mut FunctionCallsMap,
+) {
+    for contract_call in contract_calls_map.0.values().filter(|c| !c.is_hidden) {
+        for &child_id in &contract_call.children_call_ids {
+            if !function_calls_map
+                .0
+                .values()
+                .any(|fc| fc.children_call_ids.contains(&child_id))
+            {
+                if let Some(mut current_function_call_id) = contract_call.function_call_id {
+                    while let Some(function_call) =
+                        function_calls_map.0.get_mut(&current_function_call_id)
+                    {
+                        if function_call.children_call_ids.is_empty() {
+                            if let Some(child_contract_call) = contract_calls_map.0.get(&child_id) {
+                                let child_id_contract_address =
+                                    child_contract_call.entry_point.storage_address;
+                                warn!(
+                                    "Adding new contract call id: {} to function call id {}. The contract {:?} was not added by decoding system calls.",
+                                    child_id,
+                                    current_function_call_id,
+                                    child_id_contract_address
+                                );
+                                function_call.children_call_ids.push(child_id);
+                                break;
+                            }
+                        }
+                        current_function_call_id = *function_call
+                            .children_call_ids
+                            .last()
+                            .unwrap_or(&current_function_call_id);
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn run_simulation(
