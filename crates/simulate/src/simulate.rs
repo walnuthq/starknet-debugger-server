@@ -112,7 +112,7 @@ pub async fn simulate(
         &classes_debugger_data,
     );
 
-    additinal_process_contract_calls(&mut contract_calls_map, &function_calls_map);
+    filter_and_hide_unlinked_function_calls(&mut contract_calls_map, &function_calls_map);
 
     let mut event_abis: Vec<EventAbi> = Vec::new();
 
@@ -183,7 +183,7 @@ pub async fn simulate(
     Ok((simulation_info, block_timestamp, transaction_index))
 }
 
-fn additinal_process_contract_calls(
+fn filter_and_hide_unlinked_function_calls(
     contract_calls_map: &mut ContractCallsMap,
     function_calls_map: &FunctionCallsMap,
 ) {
