@@ -9,7 +9,6 @@ use app_state::AppState;
 use aws_config::meta::region::RegionProviderChain;
 use axum::{routing::get, routing::post, Router};
 use axum_prometheus::PrometheusMetricLayer;
-use deadpool_redis;
 use dotenv::dotenv;
 use handlers::{
     classes::get_class_handler,
@@ -34,7 +33,6 @@ use sentry;
 
 // Resources
 // https://github.com/tokio-rs/axum/tree/main/examples
-// https://crates.io/crates/redis-macros
 // https://www.apianalytics.dev/
 // - https://github.com/tom-draper/api-analytics
 // https://docs.rs/axum-prometheus/latest/axum_prometheus/
@@ -57,17 +55,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(sentry_tracing::layer())
         .init();
 
-    let redis_addr = std::env::var("REDIS_ADDR").unwrap_or("redis://127.0.0.1/".to_string());
     let db_addr = std::env::var("DATABASE_URL").unwrap_or("postgres://".to_string());
     let db_pool = PgPoolOptions::new()
         .max_connections(30)
         .connect(&db_addr)
         .await?;
-
-    let redis_cfg = deadpool_redis::Config::from_url(redis_addr);
-    let redis_pool = redis_cfg
-        .create_pool(Some(deadpool_redis::Runtime::Tokio1))
-        .unwrap();
 
     let region_provider = RegionProviderChain::default_provider();
     let shared_config = aws_config::from_env().region(region_provider).load().await;
@@ -77,7 +69,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let shared_state = Arc::new(AppState {
         db_pool,
-        redis_pool,
         s3_client,
     });
 
