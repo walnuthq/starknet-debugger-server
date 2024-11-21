@@ -269,3 +269,8 @@ pub fn get_name_of_entry_point_selector(entry_point_selector: &Felt) -> Option<S
         None => None,
     }
 }
+
+pub fn felt_str_to_fixed(felt_str: &str) -> anyhow::Result<String> {
+    let felt = Felt::from_hex(felt_str)?;
+    Ok(felt.to_fixed_hex_string())
+}
