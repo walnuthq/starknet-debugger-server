@@ -18,6 +18,9 @@ use handlers::{
 };
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
+use aws_sdk_s3::Client;
+use aws_sdk_s3::config::endpoint::Endpoint;
+use aws_sdk_s3::config::Region;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
@@ -61,10 +64,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .connect(&db_addr)
         .await?;
 
-    let region_provider = RegionProviderChain::default_provider();
-    let shared_config = aws_config::from_env().region(region_provider).load().await;
-    let s3_client = aws_sdk_s3::Client::new(&shared_config);
 
+    // Configure the region and endpoint
+    let region = Region::new(std::env::var("S3_REGION").unwrap_or("".to_string()));
+    let shared_config = aws_config::from_env()
+        .region(region)
+        .endpoint_url(std::env::var("S3_ENDPOINT").unwrap_or("".to_string()))
+        .load()
+        .await;
+
+    // Create the S3 client
+    let s3_client = Client::new(&shared_config);
     sqlx::migrate!().run(&db_pool).await?;
 
     let shared_state = Arc::new(AppState {
