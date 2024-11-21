@@ -12,13 +12,11 @@ use tracing::error;
 use url::Url;
 use utoipa::ToSchema;
 use uuid::Uuid;
+use verification::minimal_verification::initiate_minimal_verification;
 use verification::verification::{verify_by_class_hash, verify_by_contract_address};
 use verification::{
     db::fetch_verification_statuses_by_id, manifest::Manifest, verification::initiate_verification,
     VerificationRequestRow, VerificationStatusSerializable,
-};
-use verification::{
-    minimal_verification::initiate_minimal_verification, verification::verify_by_contract_address,
 };
 use walnut_shared::{
     chain_id_to_readable_string, create_rpc_client, create_rpc_client_from_url, extract_chain_id,
