@@ -55,6 +55,14 @@ impl Manifest {
                 .insert("cairo".to_string(), toml::Value::Table(cairo_table));
         }
 
+        // Remove the "license-file" field under the "package" section if it exists
+        if let Some(package_table) = scarb_config_toml
+            .get_mut("package")
+            .and_then(toml::Value::as_table_mut)
+        {
+            package_table.remove("license-file");
+        }
+
         // Convert the modified TOML back to a string and update the source_code
         let updated_scarb_config = toml::to_string(&scarb_config_toml).map_err(|e| {
             error!("Failed to serialize Scarb.toml: {}", e);
