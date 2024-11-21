@@ -17,6 +17,7 @@ SCARB_URLS=(
     "https://walnut-public-deployment-binaries.s3.amazonaws.com/scarb/$FOLDER/scarb_cairo_v_2_6_3"
     "https://walnut-public-deployment-binaries.s3.amazonaws.com/scarb/$FOLDER/scarb_cairo_v_2_6_4"
     "https://walnut-public-deployment-binaries.s3.amazonaws.com/scarb/$FOLDER/scarb_cairo_v_2_7_0"
+    "https://walnut-public-deployment-binaries.s3.amazonaws.com/scarb/$FOLDER/scarb_cairo_v2.8.2"
     "https://walnut-public-deployment-binaries.s3.amazonaws.com/scarb/$FOLDER/scarb_cairo_v2.8.4"
 )
 
