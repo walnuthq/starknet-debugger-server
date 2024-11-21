@@ -179,7 +179,7 @@ pub fn build_with_scarb(
     }
 
     if manifest.has_dojo_target {
-        let sozo_path = "binaries/sozo/sozo_v1.0.0";
+        let sozo_path = "binaries/sozo/sozo_v1.0.1";
         run_sozo_build(tmp_dir, sozo_path)?;
     } else {
         let scarb_path = format!(
