@@ -19,7 +19,7 @@ use verification::{
 };
 use walnut_shared::{
     chain_id_to_readable_string, create_rpc_client, create_rpc_client_from_url, extract_chain_id,
-    felt_str_to_fixed, pad_hex_string_to_66,
+    felt_str_to_fixed,
 };
 
 #[derive(Deserialize, Debug, Serialize, ToSchema)]
@@ -328,10 +328,20 @@ pub async fn verify_handler_with_rpc(
             .into_response();
     };
 
-    let class_hashes = class_hashes
+    let class_hashes = match class_hashes
         .iter()
-        .map(|hash| pad_hex_string_to_66(hash))
-        .collect();
+        .map(|hash| felt_str_to_fixed(hash))
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(hashes) => hashes,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(format!("Failed to convert class hash: {}", e.to_string())),
+            )
+                .into_response();
+        }
+    };
 
     let class_names = if let Some(names) = payload.class_names.clone() {
         names
