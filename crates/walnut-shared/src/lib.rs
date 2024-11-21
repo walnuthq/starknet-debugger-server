@@ -2,13 +2,13 @@ pub mod felt252_serde;
 pub mod felt252_vec_compression;
 
 use std::string::FromUtf8Error;
-
 use anyhow::{anyhow, Result};
 use cairo_vm::vm::trace::trace_entry::RelocatedTraceEntry;
-use num_bigint::BigUint;
-use num_traits::Zero;
 use serde::Serialize;
-use starknet::core::types::{BlockId, BlockTag, ContractStorageDiffItem, Felt, StorageEntry};
+use starknet::core::types::{
+    BlockId, BlockTag, ContractStorageDiffItem, DeclaredClassItem, DeployedContractItem, Felt,
+    StorageEntry,
+};
 use starknet_api::core::ChainId;
 use starknet_old::core::types as starknet_old_types;
 use starknet_providers::jsonrpc::{HttpTransport, JsonRpcClient};
@@ -174,15 +174,6 @@ pub fn get_internal_function_call_id(contract_call_id: &str, fp: usize) -> Strin
     format!("{}-fp-{}", contract_call_id, fp)
 }
 
-/// Pads a given hex string (starting with "0x") to 66 characters, including "0x".
-/// This function adds zeros after "0x" to achieve the desired length.
-pub fn pad_hex_string_to_66(hex_str: &str) -> String {
-    if !hex_str.starts_with("0x") {
-        panic!("Hex string must start with '0x'");
-    }
-    format!("0x{:0>64}", &hex_str[2..])
-}
-
 pub fn felt_to_field_element(felt: Felt) -> starknet_old_types::FieldElement {
     starknet_old_types::FieldElement::from_bytes_be(&felt.to_bytes_be()).unwrap()
 }
@@ -236,6 +227,30 @@ pub fn old_storage_diffs_to_storage_diffs(
         .collect()
 }
 
+pub fn old_deploy_contracts_to_deploy_contracts(
+    old_deploy_contracts: Vec<starknet_old_types::DeployedContractItem>,
+) -> Vec<DeployedContractItem> {
+    old_deploy_contracts
+        .into_iter()
+        .map(|old_deploy_contract| DeployedContractItem {
+            address: field_element_to_felt(old_deploy_contract.address),
+            class_hash: field_element_to_felt(old_deploy_contract.class_hash),
+        })
+        .collect()
+}
+
+pub fn old_declared_classes_to_declared_classes(
+    old_declared_classes: Vec<starknet_old_types::DeclaredClassItem>,
+) -> Vec<DeclaredClassItem> {
+    old_declared_classes
+        .into_iter()
+        .map(|old_declared_class| DeclaredClassItem {
+            class_hash: field_element_to_felt(old_declared_class.class_hash),
+            compiled_class_hash: field_element_to_felt(old_declared_class.compiled_class_hash),
+        })
+        .collect()
+}
+
 pub fn get_name_of_entry_point_selector(entry_point_selector: &Felt) -> Option<String> {
     let entry_point_selector_str = entry_point_selector.to_fixed_hex_string();
     let selector = get_selector(&entry_point_selector_str);
@@ -276,4 +291,9 @@ pub fn tuple_to_version_string(version_tuple: (u32, u32, u32)) -> String {
         "{}.{}.{}",
         version_tuple.0, version_tuple.1, version_tuple.2
     )
+}
+
+pub fn felt_str_to_fixed(felt_str: &str) -> anyhow::Result<String> {
+    let felt = Felt::from_hex(felt_str)?;
+    Ok(felt.to_fixed_hex_string())
 }

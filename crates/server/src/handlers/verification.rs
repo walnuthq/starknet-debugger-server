@@ -12,6 +12,7 @@ use tracing::error;
 use url::Url;
 use utoipa::ToSchema;
 use uuid::Uuid;
+use verification::verification::{verify_by_class_hash, verify_by_contract_address};
 use verification::{
     db::fetch_verification_statuses_by_id, manifest::Manifest, verification::initiate_verification,
     VerificationRequestRow, VerificationStatusSerializable,
@@ -21,7 +22,7 @@ use verification::{
 };
 use walnut_shared::{
     chain_id_to_readable_string, create_rpc_client, create_rpc_client_from_url, extract_chain_id,
-    pad_hex_string_to_66, parse_version_string_to_tuple,
+    felt_str_to_fixed, parse_version_string_to_tuple,
 };
 
 #[derive(Deserialize, Debug, Serialize, ToSchema)]
@@ -92,7 +93,8 @@ pub async fn get_verification_status_handler(
 #[derive(Deserialize, Debug, Serialize, ToSchema)]
 pub struct VerificationPayload {
     pub contract_name: String,
-    pub contract_address: String,
+    pub contract_address: Option<String>,
+    pub class_hash: Option<String>,
     #[schema(
         example = "{ \"src/lib.cairo\": \"// lib.cairo source code\", \"src/utils/util1.cairo\": \"// util1.cairo source code\" }"
     )]
@@ -104,7 +106,7 @@ pub struct VerificationPayload {
     path = "/v1/{chain_id}/verify",
     request_body(
         content = VerificationPayload,
-        description = "Contract name, address, and source code to verify",
+        description = "Contract name, contract address or class hash, and source code to verify",
         content_type = "application/json"
     ),
     responses(
@@ -135,36 +137,82 @@ pub async fn verify_handler(
     };
     let chain_id_readable_string = chain_id_to_readable_string(&chain_id);
     let provider_client = create_rpc_client(&chain_id);
-    let contract_address_clone = payload.contract_address.clone();
-
-    match verify_by_contract_address(
-        &state.db_pool,
-        &state.s3_client,
-        provider_client,
-        payload.contract_address,
-        payload.contract_name,
-        payload.source_code,
-        Some(chain_id_readable_string),
-        None,
-    )
-    .await
-    {
-        Ok(verification_status_id) => {
-            let response_message = format!(
+    if let Some(class_hash) = payload.class_hash {
+        let class_hash_fixed = match felt_str_to_fixed(&class_hash) {
+            Ok(fixed) => fixed,
+            Err(e) => {
+                let error_message = format!("Failed to convert class hash: {}", e.to_string());
+                error!(error_message);
+                return (StatusCode::BAD_REQUEST, Json(error_message)).into_response();
+            }
+        };
+        let class_hash_fixed_clone = class_hash_fixed.clone();
+        match verify_by_class_hash(
+            &state.db_pool,
+            &state.s3_client,
+            provider_client,
+            class_hash_fixed,
+            payload.contract_name,
+            payload.source_code,
+            Some(chain_id_readable_string),
+            None,
+        )
+        .await
+        {
+            Ok(verification_status_id) => {
+                let response_message = format!(
                 "Contract verification has started. You can check the verification status at the following link: https://app.walnut.dev/verification/status/{}",
                 verification_status_id
             );
-            (StatusCode::OK, Json(response_message)).into_response()
+                (StatusCode::OK, Json(response_message)).into_response()
+            }
+            Err(e) => {
+                error!(
+                    class_hash = class_hash_fixed_clone,
+                    tags.verification_status = "failed",
+                    "Verification failed: {}",
+                    e.to_string(),
+                );
+                (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response()
+            }
         }
-        Err(e) => {
-            error!(
-                contract_address = contract_address_clone,
-                tags.verification_status = "failed",
-                "Verification failed: {}",
-                e.to_string(),
+    } else if let Some(contract_address) = payload.contract_address {
+        let contract_address_clone = contract_address.clone();
+        match verify_by_contract_address(
+            &state.db_pool,
+            &state.s3_client,
+            provider_client,
+            contract_address,
+            payload.contract_name,
+            payload.source_code,
+            Some(chain_id_readable_string),
+            None,
+        )
+        .await
+        {
+            Ok(verification_status_id) => {
+                let response_message = format!(
+                "Contract verification has started. You can check the verification status at the following link: https://app.walnut.dev/verification/status/{}",
+                verification_status_id
             );
-            (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response()
+                (StatusCode::OK, Json(response_message)).into_response()
+            }
+            Err(e) => {
+                error!(
+                    contract_address = contract_address_clone,
+                    tags.verification_status = "failed",
+                    "Verification failed: {}",
+                    e.to_string(),
+                );
+                (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response()
+            }
         }
+    } else {
+        (
+            StatusCode::BAD_REQUEST,
+            Json("The required parameter is missing - please provide a valid class hash or contract address".to_string()),
+        )
+            .into_response()
     }
 }
 
@@ -282,10 +330,20 @@ pub async fn verify_handler_with_rpc(
                 .into_response();
         };
 
-        let class_hashes = class_hashes
+        let class_hashes = match class_hashes
             .iter()
-            .map(|hash| pad_hex_string_to_66(hash))
-            .collect();
+            .map(|hash| felt_str_to_fixed(hash))
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(hashes) => hashes,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(format!("Failed to convert class hash: {}", e.to_string())),
+                )
+                    .into_response();
+            }
+        };
 
         let class_names = if let Some(names) = payload.class_names.clone() {
             names
