@@ -1005,7 +1005,7 @@ dependencies = [
  "cairo-lang-starknet-classes",
  "cairo-lang-utils",
  "cairo-vm",
- "derive_more",
+ "derive_more 0.99.17",
  "indexmap 2.3.0",
  "itertools 0.10.5",
  "keccak",
@@ -1134,6 +1134,21 @@ name = "cached_proc_macro_types"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a4f925191b4367301851c6d99b09890311d74b0d43f274c0b34c86d308a3663"
+
+[[package]]
+name = "cairo-annotations"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b27bd803ae8b063e8fba0ee9a94af33b4881582d9a337e271d6be882313aa5cd"
+dependencies = [
+ "cairo-lang-sierra",
+ "cairo-lang-sierra-to-casm",
+ "camino",
+ "derive_more 1.0.0",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "cairo-lang-casm"
@@ -2235,6 +2250,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive_more"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a9b99b9cbbe49445b21764dc0625032a89b145a2642e67603e1c936f5458d05"
+dependencies = [
+ "derive_more-impl",
+]
+
+[[package]]
+name = "derive_more-impl"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb7330aeadfbe296029522e6c40f315320aba36fc43a5b3632f3795348f3bd22"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.77",
+ "unicode-xid",
+]
+
+[[package]]
 name = "diff"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3042,7 +3078,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.4.10",
+ "socket2",
  "tokio",
  "tower-service",
  "tracing",
@@ -3126,7 +3162,7 @@ dependencies = [
  "http-body 1.0.0",
  "hyper 1.4.1",
  "pin-project-lite",
- "socket2 0.5.5",
+ "socket2",
  "tokio",
  "tower",
  "tower-service",
@@ -3312,6 +3348,7 @@ dependencies = [
  "aws-smithy-types",
  "blockifier",
  "byteorder",
+ "cairo-annotations",
  "cairo-lang-casm",
  "cairo-lang-sierra",
  "cairo-lang-sierra-to-casm",
@@ -5720,16 +5757,6 @@ dependencies = [
 
 [[package]]
 name = "socket2"
-version = "0.4.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f7916fc008ca5542385b89a3d3ce689953c143e9304a9bf8beec1de48994c0d"
-dependencies = [
- "libc",
- "winapi",
-]
-
-[[package]]
-name = "socket2"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b5fac59a5cb5dd637972e5fca70daf0523c9067fcdc4842f053dae04a18f8e9"
@@ -6597,7 +6624,7 @@ checksum = "1b505c9c076d9fce854304bd743c93ea540ebea6b16ec96819b07343a3aa2c7c"
 dependencies = [
  "bitvec",
  "cairo-lang-starknet-classes",
- "derive_more",
+ "derive_more 0.99.17",
  "hex",
  "indexmap 2.3.0",
  "itertools 0.12.1",
@@ -6910,7 +6937,7 @@ dependencies = [
  "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
- "socket2 0.5.5",
+ "socket2",
  "tokio-macros",
  "windows-sys 0.52.0",
 ]
@@ -7359,6 +7386,7 @@ dependencies = [
  "aws-smithy-types",
  "axum 0.6.20",
  "blockifier",
+ "cairo-annotations",
  "cairo-lang-starknet-classes",
  "cairo-vm",
  "cheatnet",
