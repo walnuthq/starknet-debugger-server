@@ -16,3 +16,28 @@ services:
       - walnut-dev
     ports:
       - 1234:5432
+
+  walnut-server:
+    restart: always
+    container_name: walnut-server
+    image: walnut-server:latest
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgres://wido:9A7d9195-b3ac-4d84-b947-e69f4df530f7@51.159.207.196:13996/walnut
+      - TELEGRAM_BOT_API_KEY=7504680855:AAF3q3awuSZ5YnudZFWeJbK5TjBKMSzcsFg
+      - TELEGRAM_WALNUT_NOTIFICATIONS_CHAT_ID=-1002366902424
+      - UNIVERSAL_SIERRA_COMPILER=./universal-sierra-compiler
+      ####################### S3 configuration (Scaleway has AWS S3 compatible API)
+      - AWS_ACCESS_KEY_ID=SCW7WZ72QHBSVH50F78W
+      - AWS_SECRET_ACCESS_KEY=0af5b834-85e4-42f1-9d42-660bcaf02ecc
+      - S3_ENDPOINT=https://s3.fr-par.scw.cloud
+      - S3_REGION=fr-par
+      #######################
+    volumes:
+      - ./docker-volumes/walnut-server/binaries:/opt/app/binaries
+    networks:
+      - walnut-dev
+    ports:
+      - 3000:3000

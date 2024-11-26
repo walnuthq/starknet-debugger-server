@@ -1,8 +1,5 @@
 FROM rust:1.82.0-bookworm AS builder
 
-# This is required for binaries fetching from Scaleway S3
-ARG SCW_SECRET_KEY
-
 WORKDIR /app/walnut-server
 COPY . .
 RUN make deps
@@ -21,8 +18,9 @@ RUN adduser \
 RUN chown -R appuser /home
 COPY --from=builder /app/walnut-server/target/release/server /opt/app/server
 COPY --from=builder /app/walnut-server/universal-sierra-compiler /opt/app/universal-sierra-compiler
-COPY --from=builder /app/walnut-server/binaries /opt/app/binaries
+RUN mkdir -p /opt/app/binaries
 RUN chown -R appuser /opt/app
+RUN chmod +rwx -R /opt/app/binaries
 USER appuser
 WORKDIR /opt/app
 EXPOSE 3000
