@@ -53,14 +53,15 @@ download_binaries() {
 
         if [ $attempt -gt $max_attempts ]; then
             echo "Failed to download $url after $max_attempts attempts."
+            return 1
         fi
     done
 }
 
 # Download sozo binaries
-download_binaries "binaries/sozo" "${SOZO_URLS[@]}"
+download_binaries "binaries/sozo" "${SOZO_URLS[@]}" || exit 1
 
 # Download scarb binaries
-download_binaries "binaries/scarb" "${SCARB_URLS[@]}"
+download_binaries "binaries/scarb" "${SCARB_URLS[@]}" || exit 1
 
 echo "Binaries downloaded and placed in respective folders."
