@@ -3,7 +3,6 @@
 # Check if the system is arm64
 ARCH=$(uname -m)
 echo "System architecture: $ARCH"  # Output the architecture to the console
-
 if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
     FOLDER="arm64"
 else
@@ -31,15 +30,13 @@ download_binaries() {
     local base_dir=$1
     shift
     local urls=("$@")
-
     for url in "${urls[@]}"; do
         local file_path="$base_dir/$(basename $url)"
         local attempt=1
         local max_attempts=3
 
         while [ $attempt -le $max_attempts ]; do
-            echo "Downloading $url (Attempt $attempt/$max_attempts)..."
-            curl -L $url -o $file_path
+            curl -L $url -H "Authorization: Bearer $SCW_SECRET_KEY" -o $file_path
             if [ $? -eq 0 ]; then
                 chmod +x $file_path
                 echo "Downloaded and set executable: $file_path"

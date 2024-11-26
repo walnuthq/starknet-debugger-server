@@ -1,4 +1,8 @@
 FROM rust:1.82.0-bookworm AS builder
+
+# This is required for binaries fetching from Scaleway S3
+ARG SCW_SECRET_KEY
+
 WORKDIR /app/walnut-server
 COPY . .
 RUN make deps
