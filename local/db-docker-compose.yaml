@@ -36,7 +36,7 @@ services:
       - S3_REGION=fr-par
       #######################
     volumes:
-      - ./docker-volumes/walnut-server/binaries:/opt/app/binaries
+      - ./docker-volumes/walnut-server/binaries:/opt/app/binaries:rw
     networks:
       - walnut-dev
     ports:
