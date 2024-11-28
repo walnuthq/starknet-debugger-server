@@ -54,24 +54,33 @@ async fn send_telegram_notification(message: &str) -> Result<(), Box<dyn std::er
 
     let client = Client::new();
 
-    let payload = serde_json::json!({
-        "chat_id": telegram_walnut_notifications_chat_id,
-        "text": message,
-    });
+    let messages: Vec<String> = message
+        .chars()
+        .collect::<Vec<_>>() // Convert to a vector of characters
+        // 4096 - max length of a message in Telegram
+        .chunks(4096)  // Split into chunks of the specified size
+        .map(|chunk| chunk.iter().collect()) // Convert each chunk back to a string
+        .collect();
+    for message in messages.iter() {
+        let payload = serde_json::json!({
+            "chat_id": telegram_walnut_notifications_chat_id,
+            "text": message,
+        });
 
-    let res = client.post(telegram_bot_api_url)
-        .json(&payload)
-        .send()
-        .await;
+        let res = client.post(&telegram_bot_api_url)
+            .json(&payload)
+            .send()
+            .await;
 
-    match res {
-        Ok(res) => {
-            if !res.status().is_success() {
-                info!("Failed to send telegram notification. Message to send: {}. Error: {}", message, res.text().await.unwrap_or_else(|_| "Unknown error".to_string()));
+        match res {
+            Ok(res) => {
+                if !res.status().is_success() {
+                    info!("Failed to send telegram notification. Message to send: {}. Error: {}", message, res.text().await.unwrap_or_else(|_| "Unknown error".to_string()));
+                }
             }
-        }
-        Err(e) => {
-            warn!("Failed to send telegram notification. Message to send: {}. Error: {}", message, e);
+            Err(e) => {
+                warn!("Failed to send telegram notification. Message to send: {}. Error: {}", message, e);
+            }
         }
     }
     Ok(())
