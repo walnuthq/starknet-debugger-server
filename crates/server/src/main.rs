@@ -155,7 +155,7 @@ async fn start_scarb_binaries_downloader_scheduler() {
         .unwrap();
     let mut scheduler = AsyncScheduler::with_tz(chrono::Utc);
     scheduler
-        .every(interval.seconds())
+        .every(interval.minutes())
         .run(|| async {
             println!("Starting scarb update check");
             if let Err(err) = check_periodically_scarb_updates().await {
@@ -167,7 +167,7 @@ async fn start_scarb_binaries_downloader_scheduler() {
     spawn(async move {
         loop {
             scheduler.run_pending().await;
-            tokio::time::sleep(Duration::from_secs(5)).await;
+            tokio::time::sleep(Duration::from_secs(60)).await;
         }
     });
 }
