@@ -12,6 +12,10 @@ use tokio::io::{AsyncWriteExt, BufReader};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use regex::Regex;
 use tokio::process::Command;
+use std::env::consts::ARCH;
+use std::fmt::format;
+use std::io;
+use anyhow::anyhow;
 
 // Struct to deserialize GitHub API release response
 #[derive(Debug, Deserialize)]
@@ -88,28 +92,49 @@ async fn extract_cairo_version(scarb_path: &str) -> Result<Version, Box<dyn std:
     Ok(version)
 }
 
-// Main function to check for updates and download if available
+fn get_file_name_for_arch() -> Result<String, Box<dyn std::error::Error>> {
+    let architecture = ARCH;
+    let file_name = match architecture {
+        "x86_64" => "x86_64-unknown-linux-gnu.tar.gz",
+        "aarch64" => "aarch64-apple-darwin.tar.gz",
+        _ => return Err(Box::from(format!("Unsupported architecture: {}", architecture))),
+    };
+    Ok(file_name.to_string())
+}
+
+// The function does check in Github for new versions of Scarb and downloads them if available
+// The logic is:
+// 1. Fetch releases JSON from Github. It contains all the versions of Scarb in JSON format.
+// 2. Filter from the releases version only below the latest downloaded (saved in SCARB_LATEST_VERSION_FILE_NAME file)
+//    and sort them: oldest first. Now process will iterate and download all missing binaries.
+// 3. Download tar.gz file, extract. Then check the Cairo version of the binary and use this
+//    version to name the binary e.g. scarb --version otuputs cairo: 2.9.1 then binary is names scarb_cairo_v2.9.1
+//    NOTE: We save scarb binary with name of Cairo version, not Scarb tag name (e.g. scarb_cairo_v2.9.1)
+//          it means that scarb_vX.X.X can be saved differently like scarb_cairo_vY.Y.Y because as
+//          version we use Cairo version (not Scarb version)
+// 4. Latest download Scarb version (not Cairo) is saved in SCARB_LATEST_VERSION_FILE_NAME file.
+//    Unnecessary files and folders are removed.
 pub async fn check_periodically_scarb_updates() -> Result<(), Box<dyn std::error::Error>> {
-    let repo = std::env::var("SCARB_GITHUB_REPO_NAME")
+    let scarb_repo = std::env::var("SCARB_GITHUB_REPO_NAME")
         .expect("Environment variable SCARB_GITHUB_REPO_NAME is not set");
-    let file_path = std::env::var("SCARB_LATEST_VERSION_FILE_NAME")
+    let versioning_file_name = std::env::var("SCARB_LATEST_VERSION_FILE_NAME")
         .expect("Environment variable SCARB_LATEST_VERSION_FILE_NAME is not set");
     // We support here every version above that
     let latest_unsupported_scarb_tag = "2.8.5";
     let mut latest_installed_scarb_tag = Version::parse(latest_unsupported_scarb_tag).unwrap();
 
     // Check if the version file exists
-    if !Path::new(&file_path).exists() {
+    if !Path::new(&versioning_file_name).exists() {
         println!("Scarb last tag file does not exist. Creating it...");
-        File::create(&file_path).await?.write_all(latest_unsupported_scarb_tag.as_bytes()).await?;
+        File::create(&versioning_file_name).await?.write_all(latest_unsupported_scarb_tag.as_bytes()).await?;
     } else {
-        let content = tokio_fs::read_to_string(&file_path).await?;
+        let content = tokio_fs::read_to_string(&versioning_file_name).await?;
         let content_parsed = content.trim().replace("v", "");
         latest_installed_scarb_tag = Version::parse(content_parsed.as_str())
             .expect("Invalid version in SCARB_LATEST_VERSION_FILE_NAME");
     }
 
-    let mut releases: Vec<(Version, Release)> = get_all_releases(&repo).await?
+    let mut releases: Vec<(Version, Release)> = get_all_releases(&scarb_repo).await?
         .into_iter()
         .filter_map(|release| {
             let clean_version = release.tag_name.trim_start_matches('v');
@@ -121,20 +146,21 @@ pub async fn check_periodically_scarb_updates() -> Result<(), Box<dyn std::error
     releases.sort_by(|a, b| a.0.cmp(&b.0));
 
     for (_, release) in releases {
-        if let Some(x86_64_asset) = release
+        let file_name = get_file_name_for_arch()?;
+        if let Some(asset) = release
             .assets
             .iter()
-            .find(|asset| asset.name.ends_with("x86_64-unknown-linux-gnu.tar.gz"))
+            .find(|asset| asset.name.ends_with(file_name.as_str()))
         {
             let binaries_dir_path_string = std::env::var("BINARIES_SAVE_DIRECTORY_PATH")
                 .unwrap_or_else(|_| ".".to_string());
-            let output_path_string = format!("{}/{}", binaries_dir_path_string, x86_64_asset.name);
+            let output_path_string = format!("{}/{}", binaries_dir_path_string, asset.name);
             let tar_gz_output_path = Path::new(&output_path_string);
-            println!("Downloading {}", x86_64_asset.browser_download_url);
-            download_file(&x86_64_asset.browser_download_url, tar_gz_output_path).await?;
+            println!("Downloading {}", asset.browser_download_url);
+            download_file(&asset.browser_download_url, tar_gz_output_path).await?;
             println!("Downloaded to: {:?}", tar_gz_output_path);
 
-            if x86_64_asset.name.ends_with(".tar.gz") {
+            if asset.name.ends_with(".tar.gz") {
                 let binaries_dir_path = Path::new(&binaries_dir_path_string);
                 println!("Extracting to: {:?}", binaries_dir_path);
                 extract_tar_gz(tar_gz_output_path, binaries_dir_path).await?;
@@ -151,17 +177,13 @@ pub async fn check_periodically_scarb_updates() -> Result<(), Box<dyn std::error
                 tokio_fs::rename(&extracted_binary_path, &extracted_binary_destination_path).await?;
                 // Remove the extracted tar.gz folder
                 tokio::fs::remove_dir_all(extracted_tar_gz_folder_path).await?;
-                // Save the latest downloaded Scarb version to a file
+                // Save the latest downloaded Scarb version to the file
                 // NOTE! We save here the Scarb version, not the tag name (cairo version)
-                tokio_fs::write(&file_path, release.tag_name.as_bytes()).await?;
-                println!(
-                    "Extracted successfully: {}",
-                    &extracted_binary_destination_path
-                );
+                tokio_fs::write(&versioning_file_name, release.tag_name.as_bytes()).await?;
+                println!("Extracted successfully: {}", &extracted_binary_destination_path);
             }
             // Remove the tar.gz file
             tokio::fs::remove_file(tar_gz_output_path).await?;
-
         } else {
             println!("No compatible assets found in the release.");
         }

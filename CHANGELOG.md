@@ -1,4 +1,8 @@
 # Changelog
+### [0.0.12] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.12)
+- added Scarb binary download scheduler - every given interval (~60 minutes) Github releases are checked 
+  for new Scarb versions and binaries are downloaded. It will not require to build Scarb versions manually.
+- fixed choosing Scarb S3 folder based on the system architecture bug fix
 ### [0.0.11] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.11)
 - added `scarb 2.8.5` support
 

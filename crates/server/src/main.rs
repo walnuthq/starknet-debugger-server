@@ -85,37 +85,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let s3_client = Client::new(&shared_config);
     sqlx::migrate!().run(&db_pool).await?;
 
-    download_binary(&s3_client, format!("sozo/{ARCH}/sozo_v1.0.1").as_str()).await?;
-    download_binary(&s3_client, format!("scarb/{ARCH}/scarb_cairo_v_2_6_3").as_str()).await?;
-    download_binary(&s3_client, format!("scarb/{ARCH}/scarb_cairo_v_2_6_4").as_str()).await?;
-    download_binary(&s3_client, format!("scarb/{ARCH}/scarb_cairo_v_2_7_0").as_str()).await?;
-    download_binary(&s3_client, format!("scarb/{ARCH}/scarb_cairo_v2.8.2").as_str()).await?;
-    download_binary(&s3_client, format!("scarb/{ARCH}/scarb_cairo_v2.8.4").as_str()).await?;
-    download_binary(&s3_client, format!("scarb/{ARCH}/scarb_cairo_v2.8.5").as_str()).await?;
+    let architecture = ARCH;
+    let s3_folder = match architecture {
+        "x86_64" => "x86_64",
+        "aarch64" | "arm" => "arm64",
+        _ => return Err(Box::from(format!("Unsupported architecture: {}", architecture))),
+    };
+    download_binary(&s3_client, format!("sozo/{s3_folder}/sozo_v1.0.1").as_str()).await?;
+    download_binary(&s3_client, format!("scarb/{s3_folder}/scarb_cairo_v_2_6_3").as_str()).await?;
+    download_binary(&s3_client, format!("scarb/{s3_folder}/scarb_cairo_v_2_6_4").as_str()).await?;
+    download_binary(&s3_client, format!("scarb/{s3_folder}/scarb_cairo_v_2_7_0").as_str()).await?;
+    download_binary(&s3_client, format!("scarb/{s3_folder}/scarb_cairo_v2.8.2").as_str()).await?;
+    download_binary(&s3_client, format!("scarb/{s3_folder}/scarb_cairo_v2.8.4").as_str()).await?;
+    download_binary(&s3_client, format!("scarb/{s3_folder}/scarb_cairo_v2.8.5").as_str()).await?;
+    start_scarb_binaries_downloader_scheduler().await;
 
-
-    let mut scheduler = AsyncScheduler::with_tz(chrono::Utc);
-    scheduler
-        .every(30.seconds())
-        .run(|| async {
-            println!("Starting scarb update check");
-            if let Err(err) = check_periodically_scarb_updates().await {
-                error!("Error in scarb update check: {:?}", err);
-            } else {
-                println!("Finished scarb update check");
-            }
-        });
-    scheduler
-        .every(10.seconds())
-        .run(|| async { println!("Simplest is just using an async block"); });
-
-    // Uruchomienie pętli harmonogramu
-    spawn(async move {
-        loop {
-            scheduler.run_pending().await; // Sprawdzaj zadania
-            tokio::time::sleep(Duration::from_secs(5)).await; // Opóźnienie między sprawdzeniami
-        }
-    });
     let shared_state = Arc::new(AppState {
         db_pool,
         s3_client,
@@ -162,6 +146,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
     Ok(())
+}
+
+async fn start_scarb_binaries_downloader_scheduler() {
+    let interval: u32 = std::env::var("SCARB_RUN_SCHEDULER_INTERVAL_MINUTES")
+        .expect("Environment variable SCARB_RUN_SCHEDULER_INTERVAL_MINUTES is not set")
+        .parse::<u32>()
+        .unwrap();
+    let mut scheduler = AsyncScheduler::with_tz(chrono::Utc);
+    scheduler
+        .every(interval.seconds())
+        .run(|| async {
+            println!("Starting scarb update check");
+            if let Err(err) = check_periodically_scarb_updates().await {
+                error!("Error in scarb update check: {:?}", err);
+            } else {
+                println!("Finished scarb update check");
+            }
+        });
+    spawn(async move {
+        loop {
+            scheduler.run_pending().await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    });
 }
 
 // downloads the binary from the S3 bucket and saves it to the local directory, gives the executable permissions
