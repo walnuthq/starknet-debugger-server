@@ -37,7 +37,11 @@ use std::env::consts::ARCH;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-
+use clokwerk::{Job, AsyncScheduler, TimeUnits};
+use tokio::spawn;
+use tokio::time::{interval, Duration};
+use tracing::error;
+use verification::scarb_download_scheduler::check_periodically_scarb_updates;
 // Resources
 // https://github.com/tokio-rs/axum/tree/main/examples
 // https://www.apianalytics.dev/
@@ -89,6 +93,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     download_binary(&s3_client, format!("scarb/{ARCH}/scarb_cairo_v2.8.4").as_str()).await?;
     download_binary(&s3_client, format!("scarb/{ARCH}/scarb_cairo_v2.8.5").as_str()).await?;
 
+
+    let mut scheduler = AsyncScheduler::with_tz(chrono::Utc);
+    scheduler
+        .every(30.seconds())
+        .run(|| async {
+            println!("Starting scarb update check");
+            if let Err(err) = check_periodically_scarb_updates().await {
+                error!("Error in scarb update check: {:?}", err);
+            } else {
+                println!("Finished scarb update check");
+            }
+        });
+    scheduler
+        .every(10.seconds())
+        .run(|| async { println!("Simplest is just using an async block"); });
+
+    // Uruchomienie pętli harmonogramu
+    spawn(async move {
+        loop {
+            scheduler.run_pending().await; // Sprawdzaj zadania
+            tokio::time::sleep(Duration::from_secs(5)).await; // Opóźnienie między sprawdzeniami
+        }
+    });
     let shared_state = Arc::new(AppState {
         db_pool,
         s3_client,
