@@ -5,7 +5,7 @@ use std::{env, fs};
 use tracing::error;
 
 
-const BUILD_PROFILE: &str = "release";
+const BUILD_PROFILE: &str = "dev";
 
 pub fn run_sozo_build(tmp_dir: &PathBuf, sozo_path: &str) -> Result<()> {
     let absolute_path = fs::canonicalize(sozo_path)?;

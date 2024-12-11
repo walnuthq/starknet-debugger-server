@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use tracing::error;
 use walnut_shared::parse_version_string_to_tuple;
 
-use crate::scarb::{get_supported_cairo_versions, is_cairo_version_supported};
+use crate::scarb::{is_cairo_version_supported};
 
 #[derive(Debug)]
 pub struct Manifest {
@@ -34,28 +34,28 @@ impl Manifest {
             }
         };
 
-        // Add the sierra-replace-ids and unstable-add-statements-code-locations-debug-info under [cairo]
-        if let Some(cairo_table) = scarb_config_toml
-            .get_mut("cairo")
-            .and_then(toml::Value::as_table_mut)
-        {
-            cairo_table.insert("sierra-replace-ids".to_string(), toml::Value::Boolean(true));
-            cairo_table.insert(
-                "unstable-add-statements-code-locations-debug-info".to_string(),
-                toml::Value::Boolean(true),
-            );
-        } else {
-            let mut cairo_table = toml::map::Map::new();
-            cairo_table.insert("sierra-replace-ids".to_string(), toml::Value::Boolean(true));
-            cairo_table.insert(
-                "unstable-add-statements-code-locations-debug-info".to_string(),
-                toml::Value::Boolean(true),
-            );
-            scarb_config_toml
-                .as_table_mut()
-                .unwrap()
-                .insert("cairo".to_string(), toml::Value::Table(cairo_table));
-        }
+        // // Add the sierra-replace-ids and unstable-add-statements-code-locations-debug-info under [cairo]
+        // if let Some(cairo_table) = scarb_config_toml
+        //     .get_mut("cairo")
+        //     .and_then(toml::Value::as_table_mut)
+        // {
+        //     cairo_table.insert("sierra-replace-ids".to_string(), toml::Value::Boolean(true));
+        //     cairo_table.insert(
+        //         "unstable-add-statements-code-locations-debug-info".to_string(),
+        //         toml::Value::Boolean(true),
+        //     );
+        // } else {
+        //     let mut cairo_table = toml::map::Map::new();
+        //     cairo_table.insert("sierra-replace-ids".to_string(), toml::Value::Boolean(true));
+        //     cairo_table.insert(
+        //         "unstable-add-statements-code-locations-debug-info".to_string(),
+        //         toml::Value::Boolean(true),
+        //     );
+        //     scarb_config_toml
+        //         .as_table_mut()
+        //         .unwrap()
+        //         .insert("cairo".to_string(), toml::Value::Table(cairo_table));
+        // }
 
         // Remove the "license-file" field under the "package" section if it exists
         if let Some(package_table) = scarb_config_toml
@@ -105,9 +105,8 @@ impl Manifest {
 
         if !is_cairo_version_supported(cairo_version) {
             let error_message = format!(
-                "Unsupported Cairo version {}.{}.{}. Currently, we support versions {}. Contact us if you need support for a different version: https://t.me/walnuthq",
+                "Unsupported Cairo version {}.{}.{}. Contact us if you need support for a different version: https://t.me/walnuthq",
                 cairo_version.0, cairo_version.1, cairo_version.2,
-                get_supported_cairo_versions()
             );
             error!("{}", error_message);
             return Err(anyhow::anyhow!(error_message));

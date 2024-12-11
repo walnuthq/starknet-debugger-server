@@ -16,6 +16,7 @@ use std::env::consts::ARCH;
 use std::fmt::format;
 use std::io;
 use anyhow::anyhow;
+use tracing::info;
 
 // Struct to deserialize GitHub API release response
 #[derive(Debug, Deserialize)]
@@ -42,7 +43,7 @@ async fn get_all_releases(repo: &str) -> Result<Vec<Release>, Box<dyn std::error
     Ok(releases)
 }
 
-pub async fn download_file(url: &str, output_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+async fn download_file(url: &str, output_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let response = Client::new()
         .get(url)
         .header("User-Agent", "rust-app")
@@ -60,7 +61,7 @@ pub async fn download_file(url: &str, output_path: &Path) -> Result<(), Box<dyn 
     Ok(())
 }
 
-pub async fn extract_tar_gz(archive_path: &Path, output_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+async fn extract_tar_gz(archive_path: &Path, output_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let file = File::open(archive_path).await?;
     let buf_reader = BufReader::new(file);
 
@@ -125,7 +126,7 @@ pub async fn check_periodically_scarb_updates() -> Result<(), Box<dyn std::error
 
     // Check if the version file exists
     if !Path::new(&versioning_file_name).exists() {
-        println!("Scarb last tag file does not exist. Creating it...");
+        info!("Scarb last tag file does not exist. Creating it...");
         File::create(&versioning_file_name).await?.write_all(latest_unsupported_scarb_tag.as_bytes()).await?;
     } else {
         let content = tokio_fs::read_to_string(&versioning_file_name).await?;
@@ -156,13 +157,13 @@ pub async fn check_periodically_scarb_updates() -> Result<(), Box<dyn std::error
                 .unwrap_or_else(|_| ".".to_string());
             let output_path_string = format!("{}/{}", binaries_dir_path_string, asset.name);
             let tar_gz_output_path = Path::new(&output_path_string);
-            println!("Downloading {}", asset.browser_download_url);
+            info!("Downloading {}", asset.browser_download_url);
             download_file(&asset.browser_download_url, tar_gz_output_path).await?;
-            println!("Downloaded to: {:?}", tar_gz_output_path);
+            info!("Downloaded to: {:?}", tar_gz_output_path);
 
             if asset.name.ends_with(".tar.gz") {
                 let binaries_dir_path = Path::new(&binaries_dir_path_string);
-                println!("Extracting to: {:?}", binaries_dir_path);
+                info!("Extracting to: {:?}", binaries_dir_path);
                 extract_tar_gz(tar_gz_output_path, binaries_dir_path).await?;
                 let extracted_tar_gz_folder_path = output_path_string.trim_end_matches(".tar.gz");
                 let extracted_binary_path = format!("{}/bin/scarb", extracted_tar_gz_folder_path);
@@ -180,12 +181,12 @@ pub async fn check_periodically_scarb_updates() -> Result<(), Box<dyn std::error
                 // Save the latest downloaded Scarb version to the file
                 // NOTE! We save here the Scarb version, not the tag name (cairo version)
                 tokio_fs::write(&versioning_file_name, release.tag_name.as_bytes()).await?;
-                println!("Extracted successfully: {}", &extracted_binary_destination_path);
+                info!("Extracted successfully: {}", &extracted_binary_destination_path);
             }
             // Remove the tar.gz file
             tokio::fs::remove_file(tar_gz_output_path).await?;
         } else {
-            println!("No compatible assets found in the release.");
+            info!("No compatible assets found in the release.");
         }
     }
 

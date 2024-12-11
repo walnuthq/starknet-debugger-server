@@ -3,6 +3,7 @@ mod app_state;
 mod handlers;
 mod services;
 mod telegram_bot_service;
+mod scarb_binaries_manager_service;
 
 use app_state::AppState;
 use aws_config::meta::region::RegionProviderChain;
@@ -40,8 +41,8 @@ use std::path::Path;
 use clokwerk::{Job, AsyncScheduler, TimeUnits};
 use tokio::spawn;
 use tokio::time::{interval, Duration};
-use tracing::error;
-use verification::scarb_download_scheduler::check_periodically_scarb_updates;
+use tracing::{error, info};
+use crate::scarb_binaries_manager_service::{download_custom_scarb_binaries, start_github_scarb_binaries_downloader_scheduler};
 // Resources
 // https://github.com/tokio-rs/axum/tree/main/examples
 // https://www.apianalytics.dev/
@@ -85,20 +86,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let s3_client = Client::new(&shared_config);
     sqlx::migrate!().run(&db_pool).await?;
 
-    let architecture = ARCH;
-    let s3_folder = match architecture {
-        "x86_64" => "x86_64",
-        "aarch64" | "arm" => "arm64",
-        _ => return Err(Box::from(format!("Unsupported architecture: {}", architecture))),
-    };
-    download_binary(&s3_client, format!("sozo/{s3_folder}/sozo_v1.0.1").as_str()).await?;
-    download_binary(&s3_client, format!("scarb/{s3_folder}/scarb_cairo_v_2_6_3").as_str()).await?;
-    download_binary(&s3_client, format!("scarb/{s3_folder}/scarb_cairo_v_2_6_4").as_str()).await?;
-    download_binary(&s3_client, format!("scarb/{s3_folder}/scarb_cairo_v_2_7_0").as_str()).await?;
-    download_binary(&s3_client, format!("scarb/{s3_folder}/scarb_cairo_v2.8.2").as_str()).await?;
-    download_binary(&s3_client, format!("scarb/{s3_folder}/scarb_cairo_v2.8.4").as_str()).await?;
-    download_binary(&s3_client, format!("scarb/{s3_folder}/scarb_cairo_v2.8.5").as_str()).await?;
-    start_scarb_binaries_downloader_scheduler().await;
+    // Download scarb binaries
+    download_custom_scarb_binaries(&s3_client).await?;
+    start_github_scarb_binaries_downloader_scheduler().await;
 
     let shared_state = Arc::new(AppState {
         db_pool,
@@ -144,76 +134,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .serve(app.into_make_service())
         .await
         .unwrap();
-
-    Ok(())
-}
-
-async fn start_scarb_binaries_downloader_scheduler() {
-    let interval: u32 = std::env::var("SCARB_RUN_SCHEDULER_INTERVAL_MINUTES")
-        .expect("Environment variable SCARB_RUN_SCHEDULER_INTERVAL_MINUTES is not set")
-        .parse::<u32>()
-        .unwrap();
-    let mut scheduler = AsyncScheduler::with_tz(chrono::Utc);
-    scheduler
-        .every(interval.minutes())
-        .run(|| async {
-            println!("Starting scarb update check");
-            if let Err(err) = check_periodically_scarb_updates().await {
-                error!("Error in scarb update check: {:?}", err);
-            } else {
-                println!("Finished scarb update check");
-            }
-        });
-    spawn(async move {
-        loop {
-            scheduler.run_pending().await;
-            tokio::time::sleep(Duration::from_secs(60)).await;
-        }
-    });
-}
-
-// downloads the binary from the S3 bucket and saves it to the local directory, gives the executable permissions
-async fn download_binary(
-    s3_client: &Client,
-    object_key: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let bucket_name = std::env::var("BINARIES_S3_BUCKET_NAME").unwrap_or("".to_string());
-    let binaries_save_directory_path = std::env::var("BINARIES_SAVE_DIRECTORY_PATH").unwrap_or("".to_string());
-    let local_file_path = format!("{}/{}", &binaries_save_directory_path, &object_key.replace(format!("/{}/", ARCH).as_str(), "/"));
-    // Check if the file already exists
-    let path = Path::new(&local_file_path);
-    if path.exists() {
-        println!("File already exists (skipping download): {}", local_file_path);
-        return Ok(()); // Exit early if the file exists
-    }
-    println!("Downloading object: {}/{}", bucket_name, object_key);
-
-    // Fetch the object from the S3 bucket
-    let resp = s3_client
-        .get_object()
-        .bucket(bucket_name)
-        .key(object_key)
-        .send()
-        .await?;
-
-    // Ensure the directory exists
-    if let Some(parent_dir) = std::path::Path::new(&local_file_path).parent() {
-        fs::create_dir_all(parent_dir).expect("Failed to create parent directories");
-    }
-    let mut file = File::create(&local_file_path).expect(format!("Failed to create file: {}", local_file_path).as_str());
-
-    // Stream the object content to the file
-    let data = resp.body.collect().await?;
-    file.write_all(&data.into_bytes())
-        .expect("Failed to write object data to file");
-
-    let metadata = fs::metadata(&local_file_path)?;
-    let mut permissions = metadata.permissions();
-    permissions.set_mode(0o755); // rwxr-xr-x
-    fs::set_permissions(&local_file_path, permissions)
-        .expect("Failed to set executable permissions");
-
-    println!("Object downloaded successfully to: {}", local_file_path);
 
     Ok(())
 }
