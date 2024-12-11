@@ -34,28 +34,28 @@ impl Manifest {
             }
         };
 
-        // // Add the sierra-replace-ids and unstable-add-statements-code-locations-debug-info under [cairo]
-        // if let Some(cairo_table) = scarb_config_toml
-        //     .get_mut("cairo")
-        //     .and_then(toml::Value::as_table_mut)
-        // {
-        //     cairo_table.insert("sierra-replace-ids".to_string(), toml::Value::Boolean(true));
-        //     cairo_table.insert(
-        //         "unstable-add-statements-code-locations-debug-info".to_string(),
-        //         toml::Value::Boolean(true),
-        //     );
-        // } else {
-        //     let mut cairo_table = toml::map::Map::new();
-        //     cairo_table.insert("sierra-replace-ids".to_string(), toml::Value::Boolean(true));
-        //     cairo_table.insert(
-        //         "unstable-add-statements-code-locations-debug-info".to_string(),
-        //         toml::Value::Boolean(true),
-        //     );
-        //     scarb_config_toml
-        //         .as_table_mut()
-        //         .unwrap()
-        //         .insert("cairo".to_string(), toml::Value::Table(cairo_table));
-        // }
+        // Add the sierra-replace-ids and unstable-add-statements-code-locations-debug-info under [cairo]
+        if let Some(cairo_table) = scarb_config_toml
+            .get_mut("cairo")
+            .and_then(toml::Value::as_table_mut)
+        {
+            cairo_table.insert("sierra-replace-ids".to_string(), toml::Value::Boolean(true));
+            cairo_table.insert(
+                "unstable-add-statements-code-locations-debug-info".to_string(),
+                toml::Value::Boolean(true),
+            );
+        } else {
+            let mut cairo_table = toml::map::Map::new();
+            cairo_table.insert("sierra-replace-ids".to_string(), toml::Value::Boolean(true));
+            cairo_table.insert(
+                "unstable-add-statements-code-locations-debug-info".to_string(),
+                toml::Value::Boolean(true),
+            );
+            scarb_config_toml
+                .as_table_mut()
+                .unwrap()
+                .insert("cairo".to_string(), toml::Value::Table(cairo_table));
+        }
 
         // Remove the "license-file" field under the "package" section if it exists
         if let Some(package_table) = scarb_config_toml
