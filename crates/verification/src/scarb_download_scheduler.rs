@@ -10,7 +10,7 @@ use tokio::fs as tokio_fs;
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio_util::compat::TokioAsyncReadCompatExt;
-use regex::Regex;
+use lazy_regex::regex;
 use tokio::process::Command;
 use std::env::consts::ARCH;
 use std::fmt::format;
@@ -82,7 +82,7 @@ async fn extract_cairo_version(scarb_path: &str) -> Result<Version, Box<dyn std:
 
     let scarb_output = String::from_utf8(output.stdout)?;
 
-    let regex = Regex::new(r"cairo: ([\d\.]+)").unwrap();
+    let regex = regex!(r"cairo: ([\d\.]+)");
     let version_str = regex.captures(&scarb_output)
         .and_then(|caps| caps.get(1))
         .ok_or_else(|| "Failed to find cairo version in scarb output")?
@@ -115,11 +115,7 @@ fn get_file_name_for_arch() -> Result<String, Box<dyn std::error::Error>> {
 //          version we use Cairo version (not Scarb version)
 // 4. Latest download Scarb version (not Cairo) is saved in SCARB_LATEST_VERSION_FILE_NAME file.
 //    Unnecessary files and folders are removed.
-pub async fn check_periodically_scarb_updates() -> Result<(), Box<dyn std::error::Error>> {
-    let scarb_repo = std::env::var("SCARB_GITHUB_REPO_NAME")
-        .expect("Environment variable SCARB_GITHUB_REPO_NAME is not set");
-    let versioning_file_name = std::env::var("SCARB_LATEST_VERSION_FILE_NAME")
-        .expect("Environment variable SCARB_LATEST_VERSION_FILE_NAME is not set");
+pub async fn check_periodically_scarb_updates(scarb_repo: &str, versioning_file_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     // We support here every version above that
     let latest_unsupported_scarb_tag = "2.8.5";
     let mut latest_installed_scarb_tag = Version::parse(latest_unsupported_scarb_tag).unwrap();
@@ -131,17 +127,23 @@ pub async fn check_periodically_scarb_updates() -> Result<(), Box<dyn std::error
     } else {
         let content = tokio_fs::read_to_string(&versioning_file_name).await?;
         let content_parsed = content.trim().replace("v", "");
-        latest_installed_scarb_tag = Version::parse(content_parsed.as_str())
-            .expect("Invalid version in SCARB_LATEST_VERSION_FILE_NAME");
+        let latest_installed_scarb_tag_from_file = match Version::parse(content_parsed.as_str()) {
+            Ok(ver) => ver,
+            Err(_) => {
+                return Err(Box::from(format!("Invalid (corrupted) latest scarb tag value found in file: {}", &versioning_file_name)));
+            }
+        };
+        latest_installed_scarb_tag = latest_installed_scarb_tag_from_file.clone();
     }
 
     let mut releases: Vec<(Version, Release)> = get_all_releases(&scarb_repo).await?
         .into_iter()
-        .filter_map(|release| {
-            let clean_version = release.tag_name.trim_start_matches('v');
-            Version::parse(clean_version).ok().map(|ver| (ver, release))
-        })
-        .filter(|(version, _)| *version > latest_installed_scarb_tag)
+        .filter_map(|release|
+            Version::parse(release.tag_name.trim_start_matches('v'))
+                .ok()
+                .map(|ver| (ver, release))
+        )
+        .filter(|(version, _)| version > &latest_installed_scarb_tag)
         .collect();
     // Sort - lowest versions first
     releases.sort_by(|a, b| a.0.cmp(&b.0));

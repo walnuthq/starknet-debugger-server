@@ -85,7 +85,11 @@ pub async fn start_github_scarb_binaries_downloader_scheduler() {
         .every(interval.minutes())
         .run(|| async {
             info!("Starting scarb update check");
-            if let Err(err) = check_periodically_scarb_updates().await {
+            let scarb_repo = std::env::var("SCARB_GITHUB_REPO_NAME")
+                .expect("Environment variable SCARB_GITHUB_REPO_NAME is not set");
+            let versioning_file_name = std::env::var("SCARB_LATEST_VERSION_FILE_NAME")
+                .expect("Environment variable SCARB_LATEST_VERSION_FILE_NAME is not set");
+            if let Err(err) = check_periodically_scarb_updates(scarb_repo.as_str(), versioning_file_name.as_str()).await {
                 error!("Error in scarb update check: {:?}", err);
             } else {
                 info!("Finished scarb update check");

@@ -43,4 +43,4 @@ tokio-util.workspace = true
 async-tar.workspace = true
 semver.workspace = true
 async-compression.workspace = true
-regex = "1.10.6"
+lazy-regex.workspace = true
