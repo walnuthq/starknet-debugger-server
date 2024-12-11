@@ -1,9 +1,17 @@
 # Changelog
+
 ### [0.0.12] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.12)
-- added Scarb binary download scheduler - every given interval (~60 minutes) Github releases are checked 
+
+- added Scarb binary download scheduler - every given interval (~60 minutes) Github releases are checked
   for new Scarb versions and binaries are downloaded. It will not require to build Scarb versions manually.
 - fixed choosing Scarb S3 folder based on the system architecture bug fix
+- changed SUPPORTED cairo versions management - due to "dynamic" support of Scarb versions, the list is not hardocded
+  anymore.
+  Server doesn't return now the error message with the list of supported cairo versions (because it's dynamic and can be
+  long in the future).
+
 ### [0.0.11] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.11)
+
 - added `scarb 2.8.5` support
 
 ### [0.0.10] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.10)
@@ -12,7 +20,8 @@
 
 ### [0.0.9] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.9)
 
-- Added sierra-replace-ids in Scarb.toml to include sierra_program_debug_info in the contract class during the build process.
+- Added sierra-replace-ids in Scarb.toml to include sierra_program_debug_info in the contract class during the build
+  process.
 
 ### [0.0.8] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.8)
 
