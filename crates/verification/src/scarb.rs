@@ -141,13 +141,13 @@ pub fn compile_with_scarb(
         };
 
         if let Ok((
-                _,
-                _,
-                _,
-                ref mut existing_contract_class,
-                ref mut existing_cairo_debug_info_path,
-                _,
-            )) = class_result
+            _,
+            _,
+            _,
+            ref mut existing_contract_class,
+            ref mut existing_cairo_debug_info_path,
+            _,
+        )) = class_result
         {
             *existing_contract_class = Some(contract_class);
             *existing_cairo_debug_info_path = cairo_debug_info_path;
