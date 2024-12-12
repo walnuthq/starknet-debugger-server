@@ -34,7 +34,7 @@ async fn download_binary(
     s3_client: &Client,
     object_key: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let bucket_name = std::env::var("BINARIES_S3_BUCKET_NAME").unwrap_or("".to_string());
+    let bucket_name = std::env::var("BINARIES_S3_BUCKET_NAME").unwrap_or("./binaries".to_string());
     let binaries_save_directory_path = std::env::var("BINARIES_SAVE_DIRECTORY_PATH").unwrap_or("".to_string());
     let local_file_path = format!("{}/{}", &binaries_save_directory_path, &object_key.replace(format!("/{}/", ARCH).as_str(), "/"));
     // Check if the file already exists
@@ -81,6 +81,7 @@ pub async fn start_github_scarb_binaries_downloader_scheduler() {
         .parse::<u32>()
         .unwrap();
     let mut scheduler = AsyncScheduler::with_tz(chrono::Utc);
+    info!("Starting scarb binaries downloader scheduler. Checking every: {} minutes", interval);
     scheduler
         .every(interval.minutes())
         .run(|| async {
