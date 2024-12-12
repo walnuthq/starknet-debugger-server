@@ -4,7 +4,9 @@
 
 - added Scarb binary download scheduler - every given interval (~60 minutes) Github releases are checked
   for new Scarb versions and binaries are downloaded. It will not require to build Scarb versions manually.
-- fixed choosing Scarb S3 folder based on the system architecture bug fix
+- fixed choosing Scarb S3 folder based on the system architecture bug fix - using `ARCH` we get `arm` or `aarch64`
+  values which can be possible returns for ARM architecture. However path to S3 is `arm64` so this mechanism could not
+  work with this bug properly - it would not resolve s3 object path correctly (it's fixed now).
 - changed SUPPORTED cairo versions management - due to "dynamic" support of Scarb versions, the list is not hardocded
   anymore.
   Server doesn't return now the error message with the list of supported cairo versions (because it's dynamic and can be
