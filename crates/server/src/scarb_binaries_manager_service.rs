@@ -40,10 +40,10 @@ async fn download_binary(
     // Check if the file already exists
     let path = Path::new(&local_file_path);
     if path.exists() {
-        println!("File already exists (skipping download): {}", local_file_path);
+        info!("File already exists (skipping download): {}", local_file_path);
         return Ok(()); // Exit early if the file exists
     }
-    println!("Downloading object: {}/{}", bucket_name, object_key);
+    info!("Downloading object: {}/{}", bucket_name, object_key);
 
     // Fetch the object from the S3 bucket
     let resp = s3_client
@@ -70,7 +70,7 @@ async fn download_binary(
     fs::set_permissions(&local_file_path, permissions)
         .expect("Failed to set executable permissions");
 
-    println!("Object downloaded successfully to: {}", local_file_path);
+    info!("Object downloaded successfully to: {}", local_file_path);
 
     Ok(())
 }
