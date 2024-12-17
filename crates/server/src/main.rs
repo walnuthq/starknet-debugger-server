@@ -33,16 +33,20 @@ use crate::handlers::{
     search::get_search_handler,
     verification::{get_verification_status_handler, verify_handler_with_rpc},
 };
+use crate::scarb_binaries_manager_service::{download_custom_scarb_binaries, start_github_scarb_binaries_downloader_scheduler};
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::response::Response;
+use clokwerk::{AsyncScheduler, Job, TimeUnits};
 use sentry;
+use sqlx::{Pool, Postgres};
 use std::env::consts::ARCH;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use clokwerk::{Job, AsyncScheduler, TimeUnits};
 use tokio::spawn;
 use tokio::time::{interval, Duration};
 use tracing::{error, info};
-use crate::scarb_binaries_manager_service::{download_custom_scarb_binaries, start_github_scarb_binaries_downloader_scheduler};
 // Resources
 // https://github.com/tokio-rs/axum/tree/main/examples
 // https://www.apianalytics.dev/
@@ -73,7 +77,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .connect(&db_addr)
         .await?;
 
-
     // Configure the region and endpoint
     let region = Region::new(std::env::var("S3_REGION").unwrap_or("".to_string()));
     let shared_config = aws_config::from_env()
@@ -98,6 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
 
     let app = Router::new()
+        .route("/health", get(health_check))
         .route("/v1/simulate-transaction", post(simulate_transaction))
         .route(
             "/v1/:chain_id/simulate-transaction/:tx_hash",
@@ -136,4 +140,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
     Ok(())
+}
+
+async fn health_check(State(state): State<Arc<AppState>>) -> StatusCode {
+    let db_status = match sqlx::query("SELECT 1")
+        .execute(&state.db_pool)
+        .await
+    {
+        Ok(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    // If the database is down, we should return an error
+    db_status
 }
