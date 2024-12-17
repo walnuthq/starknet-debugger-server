@@ -55,7 +55,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // _guard must be defined on top level so Sentry will catch errors
     // Also Tokio must be initialized manually (not with attribute)
     let mut _guard;
-    if cfg!(debug_assertions) {
+    // Start Sentry only in RELEASE build
+    if !cfg!(debug_assertions) {
          _guard = sentry::init(("https://ae2d01aafee9ea77f4090092df5a6a42@o4507958254436352.ingest.us.sentry.io/4507961681838080", sentry::ClientOptions {
             release: sentry::release_name!(),
             ..sentry::ClientOptions::default()
