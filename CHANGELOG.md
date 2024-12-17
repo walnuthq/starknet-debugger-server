@@ -1,8 +1,11 @@
 # Changelog
+### [0.0.14] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.13)
+
+- added /health endpoint to check if the server (and DB) is up and running
 
 ### [0.0.13] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.13)
 
-- added /health endpoint to check if the server (and DB) is up and running
+- Sentry fixed - Sentry now correctly receives errors
 
 ### [0.0.12] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.12)
 
