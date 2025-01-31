@@ -74,8 +74,8 @@ async fn extract_tar_gz(archive_path: &Path, output_dir: &Path) -> Result<(), Bo
 }
 
 // call scarb and extract the cairo_version
-async fn extract_cairo_version(scarb_path: &str) -> Result<Version, Box<dyn std::error::Error>> {
-    let output = Command::new(scarb_path)
+async fn extract_cairo_version(binary_path: &str) -> Result<Version, Box<dyn std::error::Error>> {
+    let output = Command::new(binary_path)
         .arg("--version")
         .output()
         .await?;
@@ -108,7 +108,9 @@ pub async fn check_periodically_scarb_updates(
     let binaries_dir_path_string = std::env::var("BINARIES_SAVE_DIRECTORY_PATH")
         .unwrap_or_else(|_| ".".to_string());
     let binary_path_in_extracted_folder = "/bin/scarb";
-    check_periodically_updates(repo, versioning_file_name, "scarb", "2.8.5", &binaries_dir_path_string).await
+    let prefix = "/scarb/scarb_cairo_";
+    check_periodically_updates(repo, versioning_file_name, "scarb", "2.8.5", &binaries_dir_path_string,
+                               &binary_path_in_extracted_folder, extract_cairo_version, &prefix).await
 }
 
 // The function does check in Github for new versions of Scarb and downloads them if available
@@ -130,7 +132,9 @@ pub async fn check_periodically_updates(
     // We support here every version above that
     latest_unsupported_tag: &str,
     binaries_dir_path_string: &str,
-    binary_path_in_extracted_folder: &str) -> Result<(), Box<dyn std::error::Error>> {
+    binary_path_in_extracted_folder: &str,
+    extract_binary_version_func: fn(binary_path: &str,
+    binary_destination_path_prefix: &str) -> Result<Version, Box<dyn std::error::Error>>) -> Result<(), Box<dyn std::error::Error>> {
     let mut latest_installed_tag = Version::parse(latest_unsupported_tag).unwrap();
 
     // Check if the version file exists
@@ -180,11 +184,11 @@ pub async fn check_periodically_updates(
                 extract_tar_gz(tar_gz_output_path, binaries_dir_path).await?;
                 let extracted_tar_gz_folder_path = output_path_string.trim_end_matches(".tar.gz");
                 let extracted_binary_path = format!("{}{}", extracted_tar_gz_folder_path, &binary_path_in_extracted_folder);
-                let cairo_version = extract_cairo_version(extracted_binary_path.as_str()).await?;
-                let scarb_tag_name = format!("v{}", cairo_version);
+                let version = extract_binary_version_func(extracted_binary_path.as_str()).await?;
+                let tag_name = format!("v{}", version);
                 let extracted_binary_destination_path = format!(
-                    "{}/scarb/scarb_cairo_{}",
-                    binaries_dir_path_string, scarb_tag_name
+                    "{}{}{}",
+                    binaries_dir_path_string, &binary_destination_path_prefix, tag_name
                 );
 
                 // Move the binary to the destination directory (e.g. binaries/scarb)

@@ -113,7 +113,7 @@ pub fn build_with_scarb_for_profile(
     }
 
     if let Some(dojo_version) = &manifest.dojo_version {
-        if !SUPPORTED_DOJO_VERSIONS.contains(&dojo_version.as_str()) {
+        if !is_dojo_version_supported(&dojo_version.as_str()) {
             return Err(anyhow::anyhow!(
                 "Unsupported Dojo version {}. Currently, we support versions {}. Contact us if you need support for a different version: https://t.me/walnuthq",
                 dojo_version,
@@ -121,12 +121,12 @@ pub fn build_with_scarb_for_profile(
             ));
         }
         let binaries_save_directory_path =
-            std::env::var("BINARIES_SAVE_DIRECTORY_PATH").unwrap_or("".to_string());
+            env::var("BINARIES_SAVE_DIRECTORY_PATH").unwrap_or("".to_string());
         let sozo_path = format!("{binaries_save_directory_path}/sozo/sozo_{}", dojo_version);
         run_sozo_build_for_profile(tmp_dir, &sozo_path, profile)?;
     } else {
         let binaries_save_directory_path =
-            std::env::var("BINARIES_SAVE_DIRECTORY_PATH").unwrap_or("".to_string());
+            env::var("BINARIES_SAVE_DIRECTORY_PATH").unwrap_or("".to_string());
         let scarb_path = format!(
             "{}/scarb/scarb_cairo_v{}.{}.{}",
             binaries_save_directory_path,
