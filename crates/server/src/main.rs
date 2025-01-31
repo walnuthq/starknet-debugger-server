@@ -42,7 +42,7 @@ use clokwerk::{Job, AsyncScheduler, TimeUnits};
 use tokio::spawn;
 use tokio::time::{interval, Duration};
 use tracing::{error, info};
-use crate::scarb_binaries_manager_service::{download_custom_scarb_binaries, start_github_scarb_binaries_downloader_scheduler};
+use crate::scarb_binaries_manager_service::{download_scarb_and_sozo_binaries_from_s3, start_github_dojo_binaries_downloader_scheduler, start_github_scarb_binaries_downloader_scheduler};
 // Resources
 // https://github.com/tokio-rs/axum/tree/main/examples
 // https://www.apianalytics.dev/
@@ -93,8 +93,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             sqlx::migrate!().run(&db_pool).await?;
 
             // Download scarb binaries
-            download_custom_scarb_binaries(&s3_client).await?;
+            download_scarb_and_sozo_binaries_from_s3(&s3_client).await?;
             start_github_scarb_binaries_downloader_scheduler().await;
+            start_github_dojo_binaries_downloader_scheduler().await;
 
             let shared_state = Arc::new(AppState {
                 db_pool,
