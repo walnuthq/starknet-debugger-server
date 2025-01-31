@@ -109,8 +109,9 @@ pub async fn check_periodically_scarb_updates(
         .unwrap_or_else(|_| ".".to_string());
     let binary_path_in_extracted_folder = "/bin/scarb";
     let prefix = "/scarb/scarb_cairo_";
-    check_periodically_updates(repo, versioning_file_name, "scarb", "2.8.5", &binaries_dir_path_string,
-                               &binary_path_in_extracted_folder, extract_cairo_version, &prefix).await
+    check_periodically_updates(repo, versioning_file_name, "scarb",
+        "2.8.5", &binaries_dir_path_string, &binary_path_in_extracted_folder,
+                               extract_cairo_version, &prefix).await
 }
 
 // The function does check in Github for new versions of Scarb and downloads them if available
@@ -133,8 +134,8 @@ pub async fn check_periodically_updates(
     latest_unsupported_tag: &str,
     binaries_dir_path_string: &str,
     binary_path_in_extracted_folder: &str,
-    extract_binary_version_func: fn(binary_path: &str,
-    binary_destination_path_prefix: &str) -> Result<Version, Box<dyn std::error::Error>>) -> Result<(), Box<dyn std::error::Error>> {
+    extract_binary_version_func: fn(binary_path: &str) -> Result<Version, Box<dyn std::error::Error>>,
+    binary_destination_path_prefix: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut latest_installed_tag = Version::parse(latest_unsupported_tag).unwrap();
 
     // Check if the version file exists
@@ -186,17 +187,16 @@ pub async fn check_periodically_updates(
                 let extracted_binary_path = format!("{}{}", extracted_tar_gz_folder_path, &binary_path_in_extracted_folder);
                 let version = extract_binary_version_func(extracted_binary_path.as_str()).await?;
                 let tag_name = format!("v{}", version);
-                let extracted_binary_destination_path = format!(
-                    "{}{}{}",
+                let extracted_binary_destination_path = format!("{}{}{}",
                     binaries_dir_path_string, &binary_destination_path_prefix, tag_name
                 );
 
-                // Move the binary to the destination directory (e.g. binaries/scarb)
+                // Move the binary to the destination directory (e.g. binaries/<tool_name>)
                 tokio_fs::rename(&extracted_binary_path, &extracted_binary_destination_path).await?;
                 // Remove the extracted tar.gz folder
                 tokio::fs::remove_dir_all(extracted_tar_gz_folder_path).await?;
-                // Save the latest downloaded Scarb version to the file
-                // NOTE! We save here the Scarb version, not the tag name (cairo version)
+                // Save the latest downloaded tool version to the file
+                // NOTE! We save here the tag, not cairo version (relevant for Scarb only)
                 tokio_fs::write(&versioning_file_name, release.tag_name.as_bytes()).await?;
                 info!("Extracted successfully: {}", &extracted_binary_destination_path);
             }
