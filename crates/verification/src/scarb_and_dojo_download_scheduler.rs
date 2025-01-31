@@ -103,15 +103,20 @@ fn get_file_name_for_arch() -> Result<String, Box<dyn std::error::Error>> {
     Ok(file_name.to_string())
 }
 
-pub async fn check_periodically_scarb_updates(
-        repo: &str, versioning_file_name: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let binaries_dir_path_string = std::env::var("BINARIES_SAVE_DIRECTORY_PATH")
-        .unwrap_or_else(|_| ".".to_string());
-    let binary_path_in_extracted_folder = "/bin/scarb";
-    let prefix = "/scarb/scarb_cairo_";
+pub async fn check_periodically_sozo_updates(
+        repo: &str,
+        versioning_file_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     check_periodically_updates(repo, versioning_file_name, "scarb",
-        "2.8.5", &binaries_dir_path_string, &binary_path_in_extracted_folder,
-                               extract_cairo_version, &prefix).await
+                               "1.1.0", "/sozo",
+                               extract_cairo_version, "/sozo/sozo_").await
+}
+
+pub async fn check_periodically_scarb_updates(
+        repo: &str,
+        versioning_file_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    check_periodically_updates(repo, versioning_file_name, "scarb",
+        "2.8.5", "/bin/scarb",
+                               extract_cairo_version, "/scarb/scarb_cairo_").await
 }
 
 // The function does check in Github for new versions of Scarb and downloads them if available
@@ -132,10 +137,11 @@ pub async fn check_periodically_updates(
     tool_name: &str,
     // We support here every version above that
     latest_unsupported_tag: &str,
-    binaries_dir_path_string: &str,
     binary_path_in_extracted_folder: &str,
     extract_binary_version_func: fn(binary_path: &str) -> Result<Version, Box<dyn std::error::Error>>,
     binary_destination_path_prefix: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let binaries_dir_path_string = std::env::var("BINARIES_SAVE_DIRECTORY_PATH")
+        .unwrap_or_else(|_| ".".to_string());
     let mut latest_installed_tag = Version::parse(latest_unsupported_tag).unwrap();
 
     // Check if the version file exists

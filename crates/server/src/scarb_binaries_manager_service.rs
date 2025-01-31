@@ -9,7 +9,7 @@ use aws_sdk_s3::Client;
 use clokwerk::{AsyncScheduler, TimeUnits};
 use tokio::spawn;
 use tracing::{error, info};
-use verification::scarb_download_scheduler::check_periodically_scarb_updates;
+use verification::scarb_and_dojo_download_scheduler::{check_periodically_scarb_updates, check_periodically_sozo_updates};
 
 
 pub async fn download_scarb_and_sozo_binaries_from_s3(s3_client: &Client) -> Result<(), Box<dyn std::error::Error>> {
@@ -82,6 +82,7 @@ pub async fn start_github_scarb_binaries_downloader_scheduler() {
         "SCARB_GITHUB_REPO_NAME".to_string(),
         "SCARB_LATEST_VERSION_FILE_NAME".to_string(),
         "SCARB_RUN_SCHEDULER_INTERVAL_MINUTES".to_string(),
+        check_periodically_sozo_updates
     ).await;
 }
 
@@ -91,6 +92,7 @@ pub async fn start_github_dojo_binaries_downloader_scheduler() {
         "DOJO_GITHUB_REPO_NAME".to_string(),
         "DOJO_LATEST_VERSION_FILE_NAME".to_string(),
         "DOJO_RUN_SCHEDULER_INTERVAL_MINUTES".to_string(),
+        check_periodically_scarb_updates,
     ).await;
 }
 
@@ -98,7 +100,10 @@ async fn start_downloader_scheduler(
         name: String,
         repo_env_var: String,
         versioning_file_name_env_var: String,
-        interval_env_var: String) {
+        interval_env_var: String,
+        check_periodically_tool_updates_func: fn(
+            repo: &str,
+            versioning_file_name: &str) -> Result<(), Box<dyn std::error::Error>>) {
     let interval: u32 = std::env::var(interval_env_var)
         .unwrap_or_else(|_| "60".to_string())
         .parse::<u32>()
@@ -117,7 +122,7 @@ async fn start_downloader_scheduler(
                     .expect(&format!("Environment variable {} is not set", repo_env_var));
                 let versioning_file_name = std::env::var(&versioning_file_name_env_var)
                     .expect(&format!("Environment variable {} is not set", versioning_file_name_env_var));
-                if let Err(err) = check_periodically_scarb_updates(scarb_repo.as_str(), versioning_file_name.as_str()).await {
+                if let Err(err) = check_periodically_tool_updates_func(scarb_repo.as_str(), versioning_file_name.as_str()).await {
                     error!("Error in {} update check: {:?}", name, err);
                 } else {
                     info!("Finished {} update check", name);
