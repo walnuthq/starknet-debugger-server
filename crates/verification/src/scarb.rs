@@ -34,8 +34,6 @@ fn minimum_supported_new_dojo_version() -> Version {
     Version::parse("1.1.0").unwrap()
 }
 
-const SUPPORTED_DOJO_VERSIONS: &[&str] = &["v1.0.1", "v1.0.12"];
-
 fn run_scarb_build_for_profile(tmp_dir: &PathBuf, scarb_path: &str, profile: &str) -> Result<()> {
     let mut cmd = ScarbCommand::new();
     cmd.current_dir(tmp_dir);
@@ -114,11 +112,7 @@ pub fn build_with_scarb_for_profile(
 
     if let Some(dojo_version) = &manifest.dojo_version {
         if !is_dojo_version_supported(&dojo_version.as_str()) {
-            return Err(anyhow::anyhow!(
-                "Unsupported Dojo version {}. Currently, we support versions {}. Contact us if you need support for a different version: https://t.me/walnuthq",
-                dojo_version,
-                SUPPORTED_DOJO_VERSIONS.join(", ")
-            ));
+            return Err(anyhow::anyhow!("Unsupported Dojo version {}.", dojo_version));
         }
         let binaries_save_directory_path =
             env::var("BINARIES_SAVE_DIRECTORY_PATH").unwrap_or("".to_string());
