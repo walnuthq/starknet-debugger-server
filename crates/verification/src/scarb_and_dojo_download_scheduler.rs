@@ -13,7 +13,9 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 use lazy_regex::regex;
 use tokio::process::Command;
 use std::env::consts::ARCH;
+use std::error::Error;
 use std::fmt::format;
+use std::future::Future;
 use std::io;
 use anyhow::anyhow;
 use tracing::info;
@@ -74,7 +76,7 @@ async fn extract_tar_gz(archive_path: &Path, output_dir: &Path) -> Result<(), Bo
 }
 
 // call scarb and extract the cairo_version
-async fn extract_cairo_version(binary_path: &str) -> Result<Version, Box<dyn std::error::Error>> {
+async fn extract_cairo_version(binary_path: &str) -> Result<Version, Box<dyn Error>> {
     let output = Command::new(binary_path)
         .arg("--version")
         .output()
@@ -93,7 +95,17 @@ async fn extract_cairo_version(binary_path: &str) -> Result<Version, Box<dyn std
     Ok(version)
 }
 
-fn get_file_name_for_arch() -> Result<String, Box<dyn std::error::Error>> {
+fn get_sozo_file_name_for_arch() -> Result<String, Box<dyn Error>> {
+    let architecture = ARCH;
+    let file_name = match architecture {
+        "x86_64" => "linux_amd64.tar.gz",
+        "aarch64" => "darwin_arm64.tar.gz",
+        _ => return Err(Box::from(format!("Unsupported architecture: {}", architecture))),
+    };
+    Ok(file_name.to_string())
+}
+
+fn get_scarb_file_name_for_arch() -> Result<String, Box<dyn Error>> {
     let architecture = ARCH;
     let file_name = match architecture {
         "x86_64" => "x86_64-unknown-linux-gnu.tar.gz",
@@ -103,43 +115,53 @@ fn get_file_name_for_arch() -> Result<String, Box<dyn std::error::Error>> {
     Ok(file_name.to_string())
 }
 
+
 pub async fn check_periodically_sozo_updates(
         repo: &str,
-        versioning_file_name: &str) -> Result<(), Box<dyn std::error::Error>> {
-    check_periodically_updates(repo, versioning_file_name, "scarb",
-                               "1.1.0", "/sozo",
-                               extract_cairo_version, "/sozo/sozo_").await
+        versioning_file_name: &str) -> Result<(), Box<dyn Error>> {
+    check_periodically_updates(
+        repo,
+        versioning_file_name,
+        "sozo",
+        "1.0.12",
+        "/sozo",
+        "/sozo/sozo_"
+    ).await
 }
 
 pub async fn check_periodically_scarb_updates(
         repo: &str,
         versioning_file_name: &str) -> Result<(), Box<dyn std::error::Error>> {
-    check_periodically_updates(repo, versioning_file_name, "scarb",
-        "2.8.5", "/bin/scarb",
-                               extract_cairo_version, "/scarb/scarb_cairo_").await
+    check_periodically_updates(
+        repo,
+        versioning_file_name,
+        "scarb",
+        "2.8.5",
+        "/bin/scarb",
+        "/scarb/scarb_cairo_"
+    ).await
 }
 
-// The function does check in Github for new versions of Scarb and downloads them if available
+// The function does check in Github for new versions of Scarb/Sozo and downloads them if available
 // The logic is:
-// 1. Fetch releases JSON from Github. It contains all the versions of Scarb in JSON format.
-// 2. Filter from the releases version only below the latest downloaded (saved in SCARB_LATEST_VERSION_FILE_NAME file)
+// 1. Fetch releases JSON from Github. It contains all the versions of Scarb/Sozo in JSON format.
+// 2. Filter from the releases version only below the latest downloaded (saved in *_LATEST_VERSION_FILE_NAME file)
 //    and sort them: oldest first. Now process will iterate and download all missing binaries.
-// 3. Download tar.gz file, extract. Then check the Cairo version of the binary and use this
+// 3. Download tar.gz file, extract. Only for SCARB: Then check the Cairo version of the binary and use this
 //    version to name the binary e.g. scarb --version otuputs cairo: 2.9.1 then binary is names scarb_cairo_v2.9.1
 //    NOTE: We save scarb binary with name of Cairo version, not Scarb tag name (e.g. scarb_cairo_v2.9.1)
 //          it means that scarb_vX.X.X can be saved differently like scarb_cairo_vY.Y.Y because as
 //          version we use Cairo version (not Scarb version)
-// 4. Latest download Scarb version (not Cairo) is saved in SCARB_LATEST_VERSION_FILE_NAME file.
+// 4. Latest download tag version (also for SCARB it's tag, not Cairo version) is saved in *_LATEST_VERSION_FILE_NAME file.
 //    Unnecessary files and folders are removed.
 pub async fn check_periodically_updates(
-    repo: &str,
-    versioning_file_name: &str,
-    tool_name: &str,
-    // We support here every version above that
-    latest_unsupported_tag: &str,
-    binary_path_in_extracted_folder: &str,
-    extract_binary_version_func: fn(binary_path: &str) -> Result<Version, Box<dyn std::error::Error>>,
-    binary_destination_path_prefix: &str) -> Result<(), Box<dyn std::error::Error>> {
+        repo: &str,
+        versioning_file_name: &str,
+        tool_name: &str,
+        // We support here every version above that
+        latest_unsupported_tag: &str,
+        binary_path_in_extracted_folder: &str,
+        binary_destination_path_prefix: &str) -> Result<(), Box<dyn Error>> {
     let binaries_dir_path_string = std::env::var("BINARIES_SAVE_DIRECTORY_PATH")
         .unwrap_or_else(|_| ".".to_string());
     let mut latest_installed_tag = Version::parse(latest_unsupported_tag).unwrap();
@@ -173,7 +195,11 @@ pub async fn check_periodically_updates(
     releases.sort_by(|a, b| a.0.cmp(&b.0));
 
     for (_, release) in releases {
-        let file_name = get_file_name_for_arch()?;
+        let file_name = match tool_name {
+            "scarb" => get_scarb_file_name_for_arch()?,
+            "sozo" => get_sozo_file_name_for_arch()?,
+            _ => panic!("Unknown tool name: {}", tool_name),
+        };
         if let Some(asset) = release
             .assets
             .iter()
@@ -186,25 +212,47 @@ pub async fn check_periodically_updates(
             info!("Downloaded to: {:?}", tar_gz_output_path);
 
             if asset.name.ends_with(".tar.gz") {
-                let binaries_dir_path = Path::new(&binaries_dir_path_string);
-                info!("Extracting to: {:?}", binaries_dir_path);
-                extract_tar_gz(tar_gz_output_path, binaries_dir_path).await?;
-                let extracted_tar_gz_folder_path = output_path_string.trim_end_matches(".tar.gz");
-                let extracted_binary_path = format!("{}{}", extracted_tar_gz_folder_path, &binary_path_in_extracted_folder);
-                let version = extract_binary_version_func(extracted_binary_path.as_str()).await?;
-                let tag_name = format!("v{}", version);
-                let extracted_binary_destination_path = format!("{}{}{}",
-                    binaries_dir_path_string, &binary_destination_path_prefix, tag_name
-                );
+                if tool_name == "scarb" {
+                    let binaries_dir_path = Path::new(&binaries_dir_path_string);
+                    info!("Extracting to: {:?}", binaries_dir_path);
+                    extract_tar_gz(tar_gz_output_path, binaries_dir_path).await?;
+                    let extracted_tar_gz_folder_path = output_path_string.trim_end_matches(".tar.gz");
+                    let extracted_binary_path = format!("{}{}", extracted_tar_gz_folder_path, &binary_path_in_extracted_folder);
+                    let version = extract_cairo_version(extracted_binary_path.as_str()).await?;
+                    let tag_name = format!("v{}", version);
+                    let extracted_binary_destination_path = format!("{}{}{}",
+                        binaries_dir_path_string, &binary_destination_path_prefix, tag_name
+                    );
 
-                // Move the binary to the destination directory (e.g. binaries/<tool_name>)
-                tokio_fs::rename(&extracted_binary_path, &extracted_binary_destination_path).await?;
-                // Remove the extracted tar.gz folder
-                tokio::fs::remove_dir_all(extracted_tar_gz_folder_path).await?;
-                // Save the latest downloaded tool version to the file
-                // NOTE! We save here the tag, not cairo version (relevant for Scarb only)
-                tokio_fs::write(&versioning_file_name, release.tag_name.as_bytes()).await?;
-                info!("Extracted successfully: {}", &extracted_binary_destination_path);
+                    // Move the binary to the destination directory (e.g. binaries/<tool_name>)
+                    tokio_fs::rename(&extracted_binary_path, &extracted_binary_destination_path).await?;
+                    // Remove the extracted tar.gz folder
+                    tokio::fs::remove_dir_all(extracted_tar_gz_folder_path).await?;
+                    // Save the latest downloaded tool version to the file
+                    tokio_fs::write(&versioning_file_name, release.tag_name.as_bytes()).await?;
+                    info!("Extracted successfully: {}", &extracted_binary_destination_path);
+                }
+                if tool_name == "sozo" {
+                    let extract_path = format!("{}/{}", &binaries_dir_path_string, &asset.name.trim_end_matches(".tar.gz"));
+                    let extract_path_dir_path = Path::new(extract_path.as_str());
+                    info!("Extracting to: {:?}", extract_path_dir_path);
+                    extract_tar_gz(tar_gz_output_path, extract_path_dir_path).await?;
+                    let extracted_binary_path = format!("{}{}", &extract_path, &binary_path_in_extracted_folder);
+                    let version = Version::parse(release.tag_name.as_str().trim_start_matches("v"))?;
+                    let tag_name = format!("v{}", version);
+                    let extracted_binary_destination_path = format!("{}{}{}",
+                        binaries_dir_path_string, binary_destination_path_prefix, tag_name
+                    );
+
+                    // Move the binary to the destination directory (e.g. binaries/<tool_name>)
+                    tokio_fs::rename(&extracted_binary_path, &extracted_binary_destination_path).await?;
+                    // Remove the extracted tar.gz folder
+                    tokio::fs::remove_dir_all(&extract_path).await?;
+                    // Save the latest downloaded tool version to the file
+                    // NOTE! We save here the tag, not cairo version (relevant for Scarb only)
+                    tokio_fs::write(&versioning_file_name, release.tag_name.as_bytes()).await?;
+                    info!("Extracted successfully: {}", &extracted_binary_destination_path);
+                }
             }
             // Remove the tar.gz file
             tokio::fs::remove_file(tar_gz_output_path).await?;

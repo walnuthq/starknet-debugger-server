@@ -82,50 +82,49 @@ pub async fn start_github_scarb_binaries_downloader_scheduler() {
         "SCARB_GITHUB_REPO_NAME".to_string(),
         "SCARB_LATEST_VERSION_FILE_NAME".to_string(),
         "SCARB_RUN_SCHEDULER_INTERVAL_MINUTES".to_string(),
-        check_periodically_sozo_updates
     ).await;
 }
 
 pub async fn start_github_dojo_binaries_downloader_scheduler() {
     start_downloader_scheduler(
-        "dojo".to_string(),
+        "sozo".to_string(),
         "DOJO_GITHUB_REPO_NAME".to_string(),
         "DOJO_LATEST_VERSION_FILE_NAME".to_string(),
         "DOJO_RUN_SCHEDULER_INTERVAL_MINUTES".to_string(),
-        check_periodically_scarb_updates,
     ).await;
 }
 
 async fn start_downloader_scheduler(
-        name: String,
-        repo_env_var: String,
-        versioning_file_name_env_var: String,
-        interval_env_var: String,
-        check_periodically_tool_updates_func: fn(
-            repo: &str,
-            versioning_file_name: &str) -> Result<(), Box<dyn std::error::Error>>) {
+    tool_name: String,
+    repo_env_var: String,
+    versioning_file_name_env_var: String,
+    interval_env_var: String) {
     let interval: u32 = std::env::var(interval_env_var)
         .unwrap_or_else(|_| "60".to_string())
         .parse::<u32>()
         .unwrap();
     let mut scheduler = AsyncScheduler::with_tz(chrono::Utc);
-    info!("Starting scarb binaries downloader scheduler. Checking every: {} minutes", interval);
+    info!("Starting {} binaries downloader scheduler. Checking every: {} minutes", &tool_name, &interval);
     scheduler
         .every(interval.minutes())
         .run( move || {
-            let name = name.clone();
+            let name = tool_name.clone();
             let repo_env_var = repo_env_var.clone();
             let versioning_file_name_env_var = versioning_file_name_env_var.clone();
             async move {
                 info!("Starting {} update check", name);
-                let scarb_repo = std::env::var(&repo_env_var)
+                let repo = std::env::var(&repo_env_var)
                     .expect(&format!("Environment variable {} is not set", repo_env_var));
                 let versioning_file_name = std::env::var(&versioning_file_name_env_var)
                     .expect(&format!("Environment variable {} is not set", versioning_file_name_env_var));
-                if let Err(err) = check_periodically_tool_updates_func(scarb_repo.as_str(), versioning_file_name.as_str()).await {
-                    error!("Error in {} update check: {:?}", name, err);
-                } else {
-                    info!("Finished {} update check", name);
+                let res = match name.as_str() {
+                    "scarb" => check_periodically_scarb_updates(repo.as_str(), versioning_file_name.as_str()).await,
+                    "sozo" => check_periodically_sozo_updates(repo.as_str(), versioning_file_name.as_str()).await,
+                    _ => panic!("Unknown tool name: {}", &name),
+                };
+                match res {
+                    Ok(_) => info!("Finished {} update check", name),
+                    Err(err) => error!("Error in {} update check: {:?}", name, err),
                 }
             }
         });
