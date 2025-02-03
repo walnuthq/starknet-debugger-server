@@ -1,18 +1,21 @@
 pub mod felt252_serde;
 pub mod felt252_vec_compression;
 
-use std::string::FromUtf8Error;
 use anyhow::{anyhow, Result};
 use cairo_vm::vm::trace::trace_entry::RelocatedTraceEntry;
 use serde::Serialize;
 use starknet::core::types::{
-    BlockId, BlockTag, ContractStorageDiffItem, DeclaredClassItem, DeployedContractItem, Felt,
-    StorageEntry,
+    BlockId, BlockTag, ContractStorageDiffItem, DeclaredClassItem, DeployedContractItem,
+    ExecutionResult, Felt, StorageEntry,
 };
-use starknet_api::core::ChainId;
-use starknet_old::core::types as starknet_old_types;
+use starknet_api::{
+    core::ChainId,
+    transaction::{Resource, ResourceBounds, ResourceBoundsMapping},
+};
+use starknet_old::core::types::{self as starknet_old_types};
 use starknet_providers::jsonrpc::{HttpTransport, JsonRpcClient};
 use starknet_selector_decoder::get_selector;
+use std::collections::BTreeMap;
 use url::Url;
 
 #[derive(Serialize, Debug, Clone)]
@@ -64,11 +67,11 @@ pub fn create_rpc_client_from_url(rpc_url: Url) -> JsonRpcClient<HttpTransport> 
 pub fn rpc_url(chain_id: &ChainId) -> Url {
     match chain_id {
         ChainId::Mainnet => {
-            Url::parse("https://starknet-mainnet.g.alchemy.com/v2/9J1ION8Owu9eHgZeyWlE9-N0yEepGA58")
+            Url::parse("https://starknet-mainnet.g.alchemy.com/starknet/version/rpc/v0_7/F2hlQcDXGdcnbgnGOSfAVSeBJ9iJsofp")
                 .unwrap()
         }
         ChainId::Sepolia => {
-            Url::parse("https://starknet-sepolia.g.alchemy.com/v2/9J1ION8Owu9eHgZeyWlE9-N0yEepGA58")
+            Url::parse("https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/F2hlQcDXGdcnbgnGOSfAVSeBJ9iJsofp")
                 .unwrap()
         }
         _ => panic!("Invalid chain id"),
@@ -191,6 +194,46 @@ pub fn vec_field_element_to_vec_felt(
         .collect()
 }
 
+pub fn old_resource_bounds_mapping_to_resource_bounds_b_tree_map(
+    resource_bounds_mapping: &starknet_old_types::ResourceBoundsMapping,
+) -> ResourceBoundsMapping {
+    ResourceBoundsMapping(BTreeMap::from([
+        (
+            Resource::L1Gas,
+            ResourceBounds {
+                max_amount: resource_bounds_mapping.l1_gas.max_amount,
+                max_price_per_unit: resource_bounds_mapping.l1_gas.max_price_per_unit,
+            },
+        ),
+        (
+            Resource::L2Gas,
+            ResourceBounds {
+                max_amount: resource_bounds_mapping.l2_gas.max_amount,
+                max_price_per_unit: resource_bounds_mapping.l2_gas.max_price_per_unit,
+            },
+        ),
+    ]))
+}
+
+pub fn max_resource_bounds_map() -> ResourceBoundsMapping {
+    ResourceBoundsMapping(BTreeMap::from([
+        (
+            Resource::L1Gas,
+            ResourceBounds {
+                max_amount: u64::MAX,
+                max_price_per_unit: u128::MAX,
+            },
+        ),
+        (
+            Resource::L2Gas,
+            ResourceBounds {
+                max_amount: u64::MAX,
+                max_price_per_unit: u128::MAX,
+            },
+        ),
+    ]))
+}
+
 pub fn block_id_to_old_block_id(block_id: BlockId) -> starknet_old_types::BlockId {
     match block_id {
         BlockId::Number(block_number) => starknet_old_types::BlockId::Number(block_number),
@@ -205,6 +248,17 @@ pub fn block_id_to_old_block_id(block_id: BlockId) -> starknet_old_types::BlockI
                 starknet_old_types::BlockId::Tag(starknet_old_types::BlockTag::Pending)
             }
         },
+    }
+}
+
+pub fn old_execution_result_to_execution_result(
+    execution_result: starknet_old_types::ExecutionResult,
+) -> ExecutionResult {
+    match execution_result {
+        starknet_old_types::ExecutionResult::Succeeded => ExecutionResult::Succeeded,
+        starknet_old_types::ExecutionResult::Reverted { reason } => {
+            ExecutionResult::Reverted { reason }
+        }
     }
 }
 

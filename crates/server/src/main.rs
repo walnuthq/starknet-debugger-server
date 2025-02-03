@@ -3,7 +3,7 @@ mod app_state;
 mod handlers;
 mod services;
 mod telegram_bot_service;
-mod scarb_binaries_manager_service;
+mod binaries_manager_service;
 
 use app_state::AppState;
 use aws_config::meta::region::RegionProviderChain;
@@ -25,7 +25,7 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use utoipa::OpenApi;
 
 use crate::handlers::{
@@ -38,11 +38,13 @@ use std::env::consts::ARCH;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use axum::extract::State;
+use axum::http::StatusCode;
 use clokwerk::{Job, AsyncScheduler, TimeUnits};
 use tokio::spawn;
-use tokio::time::{interval, Duration};
+use tokio::time::{interval, timeout, Duration};
 use tracing::{error, info};
-use crate::scarb_binaries_manager_service::{download_custom_scarb_binaries, start_github_scarb_binaries_downloader_scheduler};
+use crate::binaries_manager_service::{download_scarb_and_sozo_binaries_from_s3, start_github_dojo_binaries_downloader_scheduler, start_github_scarb_binaries_downloader_scheduler};
 // Resources
 // https://github.com/tokio-rs/axum/tree/main/examples
 // https://www.apianalytics.dev/
@@ -61,12 +63,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             release: sentry::release_name!(),
             ..sentry::ClientOptions::default()
         }));
-
-        tracing_subscriber::registry()
-            .with(tracing_subscriber::fmt::layer())
-            .with(sentry_tracing::layer())
-            .init();
     }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(sentry_tracing::layer()) // Logging to stdout
+        .with(EnvFilter::new(std::env::var("LOG_LEVEL").unwrap_or("INFO".to_string()))) // Set the maximum log level to INFO
+        .init();
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -91,9 +94,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let s3_client = Client::new(&shared_config);
             sqlx::migrate!().run(&db_pool).await?;
 
-            // Download scarb binaries
-            download_custom_scarb_binaries(&s3_client).await?;
+            // Download scarb and sozo binaries
+            download_scarb_and_sozo_binaries_from_s3(&s3_client).await?;
             start_github_scarb_binaries_downloader_scheduler().await;
+            start_github_dojo_binaries_downloader_scheduler().await;
 
             let shared_state = Arc::new(AppState {
                 db_pool,
@@ -144,13 +148,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
 }
 
+// If DB is down SQLX query is hanging, this is why 3 secs timeout
 async fn health_check(State(state): State<Arc<AppState>>) -> StatusCode {
-    let db_status = match sqlx::query("SELECT 1")
-        .execute(&state.db_pool)
-        .await
-    {
-        Ok(_) => StatusCode::INTERNAL_SERVER_ERROR,
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    let db_status = match timeout(Duration::from_secs(3), sqlx::query("SELECT 1").execute(&state.db_pool)).await  {
+        db_status =>
+            match db_status {
+                Ok(_) => StatusCode::OK,
+                Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            },
     };
     // If the database is down, we should return an error
     db_status

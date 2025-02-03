@@ -1,12 +1,3 @@
-use starknet::core::types::Felt;
-use starknet_old::core::types as starknet_old_types;
-use starknet_providers::jsonrpc::HttpTransport;
-use starknet_providers::JsonRpcClient;
-use starknet_providers::Provider;
-use walnut_shared::felts_to_string;
-use walnut_shared::field_element_to_felt;
-use walnut_shared::vec_field_element_to_vec_felt;
-
 use blockifier::blockifier::block::BlockInfo;
 use blockifier::bouncer::BouncerConfig;
 use blockifier::context::TransactionContext;
@@ -16,8 +7,20 @@ use blockifier::transaction::objects::{
 };
 use blockifier::transaction::transaction_types::TransactionType;
 use blockifier::versioned_constants::VersionedConstants;
+use runtime::starknet::context::SerializableGasPrices;
+use starknet::core::types::Felt;
+use starknet_api::block::BlockNumber;
 use starknet_api::block::BlockTimestamp;
+use starknet_api::transaction::PaymasterData;
+use starknet_old::core::types as starknet_old_types;
+use starknet_providers::jsonrpc::HttpTransport;
+use starknet_providers::JsonRpcClient;
+use starknet_providers::Provider;
 use std::sync::Arc;
+use walnut_shared::field_element_to_felt;
+use walnut_shared::old_resource_bounds_mapping_to_resource_bounds_b_tree_map;
+use walnut_shared::vec_field_element_to_vec_felt;
+use walnut_shared::{felts_to_string, max_resource_bounds_map};
 
 use starknet_api::core::{ChainId, ContractAddress, Nonce, PatriciaKey};
 use starknet_api::data_availability::DataAvailabilityMode;
@@ -40,6 +43,8 @@ pub fn extract_submitted_tx(
     TransactionVersion,
     TransactionType,
     TransactionSignature,
+    ResourceBoundsMapping,
+    PaymasterData,
 )> {
     match transaction {
         starknet_old_types::Transaction::Invoke(invoke_transaction) => match invoke_transaction {
@@ -52,6 +57,8 @@ pub fn extract_submitted_tx(
                 TransactionVersion::ZERO,
                 TransactionType::InvokeFunction,
                 TransactionSignature(vec_field_element_to_vec_felt(tx.signature).into()),
+                ResourceBoundsMapping::default(),
+                PaymasterData::default(),
             )),
             starknet_old_types::InvokeTransaction::V1(tx) => Some((
                 Nonce(field_element_to_felt(tx.nonce)),
@@ -60,6 +67,8 @@ pub fn extract_submitted_tx(
                 TransactionVersion::ONE,
                 TransactionType::InvokeFunction,
                 TransactionSignature(vec_field_element_to_vec_felt(tx.signature).into()),
+                ResourceBoundsMapping::default(),
+                PaymasterData::default(),
             )),
             starknet_old_types::InvokeTransaction::V3(tx) => Some((
                 Nonce(field_element_to_felt(tx.nonce)),
@@ -68,6 +77,8 @@ pub fn extract_submitted_tx(
                 TransactionVersion::THREE,
                 TransactionType::InvokeFunction,
                 TransactionSignature(vec_field_element_to_vec_felt(tx.signature).into()),
+                old_resource_bounds_mapping_to_resource_bounds_b_tree_map(&tx.resource_bounds),
+                PaymasterData(vec_field_element_to_vec_felt(tx.paymaster_data)),
             )),
         },
         starknet_old_types::Transaction::Declare(declare_transaction) => {
@@ -79,6 +90,8 @@ pub fn extract_submitted_tx(
                     TransactionVersion::ZERO,
                     TransactionType::Declare,
                     TransactionSignature(vec_field_element_to_vec_felt(tx.signature).into()),
+                    ResourceBoundsMapping::default(),
+                    PaymasterData::default(),
                 )),
                 starknet_old_types::DeclareTransaction::V1(tx) => Some((
                     Nonce(field_element_to_felt(tx.nonce)),
@@ -87,6 +100,8 @@ pub fn extract_submitted_tx(
                     TransactionVersion::ONE,
                     TransactionType::Declare,
                     TransactionSignature(vec_field_element_to_vec_felt(tx.signature).into()),
+                    ResourceBoundsMapping::default(),
+                    PaymasterData::default(),
                 )),
                 starknet_old_types::DeclareTransaction::V2(tx) => Some((
                     Nonce(field_element_to_felt(tx.nonce)),
@@ -95,6 +110,8 @@ pub fn extract_submitted_tx(
                     TransactionVersion::TWO,
                     TransactionType::Declare,
                     TransactionSignature(vec_field_element_to_vec_felt(tx.signature).into()),
+                    ResourceBoundsMapping::default(),
+                    PaymasterData::default(),
                 )),
                 starknet_old_types::DeclareTransaction::V3(tx) => Some((
                     Nonce(field_element_to_felt(tx.nonce)),
@@ -103,6 +120,8 @@ pub fn extract_submitted_tx(
                     TransactionVersion::THREE,
                     TransactionType::Declare,
                     TransactionSignature(vec_field_element_to_vec_felt(tx.signature).into()),
+                    old_resource_bounds_mapping_to_resource_bounds_b_tree_map(&tx.resource_bounds),
+                    PaymasterData(vec_field_element_to_vec_felt(tx.paymaster_data)),
                 )),
             }
         }
@@ -110,8 +129,8 @@ pub fn extract_submitted_tx(
     }
 }
 
-pub fn extract_transaction_receipt(
-    transaction_receipt: starknet_old_types::MaybePendingTransactionReceipt,
+pub fn extract_block_number_transaction_receipt(
+    transaction_receipt: &starknet_old_types::MaybePendingTransactionReceipt,
 ) -> Option<u64> {
     match transaction_receipt {
         starknet_old_types::MaybePendingTransactionReceipt::Receipt(receipt) => match receipt {
@@ -127,19 +146,32 @@ pub fn extract_transaction_receipt(
     }
 }
 
-pub async fn extract_block_txs_info(
+pub fn extract_execution_status_transaction_receipt(
+    transaction_receipt: &starknet_old_types::MaybePendingTransactionReceipt,
+) -> Option<starknet_old_types::ExecutionResult> {
+    match transaction_receipt {
+        starknet_old_types::MaybePendingTransactionReceipt::Receipt(receipt) => match receipt {
+            starknet_old_types::TransactionReceipt::Invoke(invoke_receipt) => {
+                Some(invoke_receipt.execution_result.clone())
+            }
+            starknet_old_types::TransactionReceipt::Declare(declare_receipt) => {
+                Some(declare_receipt.execution_result.clone())
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+async fn fetch_block_with_txs(
     provider_client: &JsonRpcClient<HttpTransport>,
-    simulation_args: &SimulationArgs,
     block_number: u64,
-) -> Result<(BlockTimestamp, usize), TransactionSimulationError> {
+) -> Result<starknet_old_types::BlockWithTxs, TransactionSimulationError> {
     let block_id = starknet_old_types::BlockId::Number(block_number);
     let block_with_txs = provider_client.get_block_with_txs(block_id).await;
+
     match block_with_txs {
-        Ok(starknet_old_types::MaybePendingBlockWithTxs::Block(block_txs)) => {
-            let block_timestamp = BlockTimestamp(block_txs.timestamp);
-            let transaction_index = extract_transaction_index(&block_txs, simulation_args);
-            Ok((block_timestamp, transaction_index))
-        }
+        Ok(starknet_old_types::MaybePendingBlockWithTxs::Block(block_txs)) => Ok(block_txs),
         Ok(starknet_old_types::MaybePendingBlockWithTxs::PendingBlock(_)) => {
             Err(TransactionSimulationError::PendingBlock(
                 "Pending block is not allowed at the configuration level".to_string(),
@@ -147,6 +179,34 @@ pub async fn extract_block_txs_info(
         }
         Err(err) => Err(TransactionSimulationError::ProviderError(err)),
     }
+}
+
+pub async fn extract_block_timestamp(
+    provider_client: &JsonRpcClient<HttpTransport>,
+    block_number: u64,
+) -> Result<BlockTimestamp, TransactionSimulationError> {
+    let block_txs = fetch_block_with_txs(provider_client, block_number).await?;
+    Ok(BlockTimestamp(block_txs.timestamp))
+}
+
+pub async fn extract_block_txs_info(
+    provider_client: &JsonRpcClient<HttpTransport>,
+    simulation_args: &SimulationArgs,
+    block_number: u64,
+) -> Result<(BlockInfo, usize, usize), TransactionSimulationError> {
+    let block_txs = fetch_block_with_txs(provider_client, block_number).await?;
+    let block_info = BlockInfo {
+        block_number: BlockNumber(block_txs.block_number),
+        sequencer_address: field_element_to_felt(block_txs.sequencer_address)
+            .try_into()
+            .unwrap(),
+        block_timestamp: BlockTimestamp(block_txs.timestamp),
+        gas_prices: SerializableGasPrices::default().into(),
+        use_kzg_da: true,
+    };
+    let tx_number_in_block = block_txs.transactions.len();
+    let transaction_index = extract_transaction_index(&block_txs, simulation_args);
+    Ok((block_info, transaction_index, tx_number_in_block))
 }
 
 pub fn extract_transaction_index(
@@ -202,11 +262,13 @@ fn match_transaction(tx: &starknet_old_types::Transaction, args: &SimulationArgs
 pub fn extract_transaction_contex(
     sender_address: &ContractAddress,
     transaction_version: &TransactionVersion,
-    transaction_signature: &Option<TransactionSignature>,
+    transaction_signature: Option<TransactionSignature>,
     transaction_hash: &Option<TransactionHash>,
     nonce: &Option<Nonce>,
     chain_id: ChainId,
     block_info: &BlockInfo,
+    resource_bounds: Option<ResourceBoundsMapping>,
+    paymaster_data: Option<PaymasterData>,
 ) -> Arc<TransactionContext> {
     // Create a chain-specific block context
     let chain_info = ChainInfo {
@@ -228,16 +290,16 @@ pub fn extract_transaction_contex(
             common_fields: CommonAccountFields {
                 transaction_hash: transaction_hash.unwrap_or_default(),
                 version: *transaction_version,
-                signature: transaction_signature.clone().unwrap_or_default(),
+                signature: transaction_signature.unwrap_or_default(),
                 nonce: nonce.unwrap_or_default(),
                 sender_address: *sender_address,
                 only_query: false,
             },
-            resource_bounds: ResourceBoundsMapping::default(),
+            resource_bounds: resource_bounds.unwrap_or_else(max_resource_bounds_map),
             tip: Default::default(),
             nonce_data_availability_mode: DataAvailabilityMode::L1,
             fee_data_availability_mode: DataAvailabilityMode::L1,
-            paymaster_data: Default::default(),
+            paymaster_data: paymaster_data.unwrap_or_default(),
             account_deployment_data: Default::default(),
         }),
     })

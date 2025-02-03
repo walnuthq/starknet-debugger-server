@@ -1,7 +1,55 @@
 # Changelog
-### [0.0.14] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.13)
+### [0.0.26] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.26)
+ 
+- healthcheck endpoint added: `/health`
 
-- added /health endpoint to check if the server (and DB) is up and running
+### [0.0.25] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.25)
+
+- Automated downloader for new DOJO releases
+
+### [0.0.24] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.24)
+
+- verification build for all profiles
+
+### [0.0.23] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.23)
+
+- api key removed
+
+### [0.0.22] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.22)
+
+- rpc calls optimization
+
+### [0.0.21] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.21)
+
+- added support for `sozo v1.0.12`
+
+### [0.0.20] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.20)
+
+- upgrading Alchemy API key
+
+### [0.0.19] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.19)
+
+- moving failed verifications to `tmp/failed-verification` for further investigation
+
+### [0.0.18] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.18)
+
+- fixed support for cairo version 2.8.2 - now it's correctly supported
+
+### [0.0.17] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.17)
+
+- Provide paymaster_data and resource_bounds to transaction info for simulation
+
+### [0.0.16] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.16)
+
+- Decreased `tracing_subscriber` log level to `INFO` (was lower `tracing`) fix 2
+
+### [0.0.15] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.15)
+
+- Decreased `tracing_subscriber` log level to `INFO` (was lower `tracing`)
+
+### [0.0.14] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.14)
+
+- Improved handling for transactions that REVERT with “RunResources” error.
 
 ### [0.0.13] (https://github.com/walnuthq/walnut-server/releases/tag/0.0.13)
 

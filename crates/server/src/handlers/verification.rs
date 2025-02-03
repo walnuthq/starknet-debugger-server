@@ -2,7 +2,7 @@ use crate::app_state::AppState;
 use anyhow::Result;
 use axum::{
     extract::{self, Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
@@ -12,8 +12,10 @@ use tracing::error;
 use url::Url;
 use utoipa::ToSchema;
 use uuid::Uuid;
-use verification::minimal_verification::initiate_minimal_verification;
 use verification::verification::{verify_by_class_hash, verify_by_contract_address};
+use verification::{
+    db::fetch_class_hash_profiles_by_id, minimal_verification::initiate_minimal_verification,
+};
 use verification::{
     db::fetch_verification_statuses_by_id, manifest::Manifest, verification::initiate_verification,
     VerificationRequestRow, VerificationStatusSerializable,
@@ -65,17 +67,45 @@ pub async fn get_verification_status_handler(
     };
 
     match fetch_verification_statuses_by_id(&state.db_pool, verification_status_uuid).await {
-        Ok((verification_request, verification_status_rows)) => (
-            StatusCode::OK,
-            Json(VerificationStatusResponse {
-                verification_request,
-                verification_statuses: VerificationStatusSerializable::from_rows(
-                    verification_status_rows,
-                ),
-                error_message: None,
-            }),
-        )
-            .into_response(),
+        Ok((verification_request, verification_status_rows)) => {
+            let class_hash_profiles =
+                fetch_class_hash_profiles_by_id(&state.db_pool, verification_status_uuid)
+                    .await
+                    .unwrap_or_default();
+
+            // Create the verification statuses with the profiles
+            let verification_statuses = verification_status_rows
+                .iter()
+                .map(|row| {
+                    let profiles = class_hash_profiles
+                        .get(row.class_hash.as_ref().unwrap_or(&"".to_string()))
+                        .cloned();
+
+                    VerificationStatusSerializable {
+                        primary_id: row.primary_id,
+                        id: row.id.to_string(),
+                        network: row.network.clone(),
+                        class_hash: row.class_hash.clone(),
+                        status: row.status.clone(),
+                        message: row.message.clone(),
+                        project_id: row.project_id,
+                        created_at: row.created_at.to_string(),
+                        updated_at: row.updated_at.to_string(),
+                        profiles,
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            (
+                StatusCode::OK,
+                Json(VerificationStatusResponse {
+                    verification_request,
+                    verification_statuses,
+                    error_message: None,
+                }),
+            )
+                .into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(VerificationStatusResponse {
@@ -139,7 +169,7 @@ pub async fn verify_handler(
         let class_hash_fixed = match felt_str_to_fixed(&class_hash) {
             Ok(fixed) => fixed,
             Err(e) => {
-                let error_message = format!("Failed to convert class hash: {}", e.to_string());
+                let error_message = format!("Failed to convert class hash: {}", e);
                 error!(error_message);
                 return (StatusCode::BAD_REQUEST, Json(error_message)).into_response();
             }
@@ -153,7 +183,6 @@ pub async fn verify_handler(
             payload.contract_name,
             payload.source_code,
             Some(chain_id_readable_string),
-            None,
         )
         .await
         {
@@ -184,7 +213,6 @@ pub async fn verify_handler(
             payload.contract_name,
             payload.source_code,
             Some(chain_id_readable_string),
-            None,
         )
         .await
         {
@@ -214,37 +242,6 @@ pub async fn verify_handler(
     }
 }
 
-fn get_api_token(headers: &HeaderMap) -> Result<String> {
-    match headers.get("x-api-key") {
-        Some(value) => Ok(value.to_str()?.to_string()),
-        None => Err(anyhow::anyhow!("Missing x-api-key header")),
-    }
-}
-
-fn check_api_key(api_key: &str) -> Result<i32> {
-    match api_key {
-        "walnut_ZFqJep8VrMB_LfUXdSeKxJAxNz9AC6rdLK" => Ok(1), // Walnut Project
-        "walnut_cntgR78e35j_SjkgMzV0KrNykHY9F0pVjB" => Ok(8), // Cartridge Project
-        "walnut_V7PlxSbPrpx_aalIqha6AqZwK0bB3juEzC" => Ok(9),
-        "walnut_83emw3JcDMt_C6qXwh24Ni8ZmnMO5ni8c3" => Ok(10),
-        "walnut_h2MmwIU99ru_2O4JkLWmNm9E6i9UXdpgFl" => Ok(11),
-        "walnut_80tR2Eelg9Y_MzFziveCu37HjUBaUJGKr4" => Ok(12),
-        "walnut_UAMEr3IpvRQ_tCjW5QYcf07mvE5T8mQgL6" => Ok(13),
-
-        "walnut_tW5YiM75v9a_MRmjmAu1qGiRZ2dDNN323o" => Ok(14),
-        "walnut_SlmxTnqPEST_C41RY5wE5ycbhU4XoJjlcm" => Ok(15),
-        "walnut_XIuhAujgaaF_PtjWmx3kUlZsJWTmJ2dTAw" => Ok(16),
-        "walnut_S6kKZutIQlQ_jR79512PTly2JOukqhf785" => Ok(17),
-        "walnut_RQ3pC4cqOkk_fIyCmODlj8NK6L1E7rPEP3" => Ok(18),
-        "walnut_StoZLiQGqw2_HozDhQQ8CcPOsqu2POzObD" => Ok(19),
-        "walnut_bz6AXYZUe1o_jk9s4CzvK1PfYvSDEOSmcu" => Ok(20),
-        "walnut_ED6LtVdJdxX_U4HfCT4WIc6GCi3E8AMZGq" => Ok(21),
-        "walnut_LGXu5j6klpv_01I25NQEKBRanv0ntJbz5d" => Ok(22),
-        "walnut_593mlD3yTTF_yquD5HzXrdb1h5DmdSwmoy" => Ok(23),
-        _ => Err(anyhow::anyhow!("Invalid API key")),
-    }
-}
-
 #[derive(Deserialize, Debug, Serialize, ToSchema)]
 pub struct VerificationPayloadWithRpc {
     pub class_name: Option<String>,
@@ -271,41 +268,18 @@ pub struct VerificationPayloadWithRpc {
         (status = 200, description = "Class verification has started", body = String),
         (status = 400, description = "An error occurred during verification; an error message will be returned", body = String)
     ),
-    params(
-        ("x-api-key" = String, Header, description = "Walnut API key"),
-    ),
     tag = "Contract class verification"
 )]
 
 pub async fn verify_handler_with_rpc(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
     Json(mut payload): Json<VerificationPayloadWithRpc>,
 ) -> Response {
-    let api_key = get_api_token(&headers).ok();
-
-    let project_id = match api_key {
-        Some(ref key) => match check_api_key(key) {
-            Ok(project_id) => Some(project_id),
-            Err(e) => {
-                error!(
-                    api_key = api_key,
-                    tags.verification_status = "failed",
-                    "Verification failed: {}",
-                    e.to_string(),
-                );
-                return (StatusCode::UNAUTHORIZED, Json(e.to_string())).into_response();
-            }
-        },
-        None => None,
-    };
-
     if let Some(rpc_url) = &payload.rpc_url {
         let rpc_url = match Url::parse(rpc_url) {
             Ok(url) => url,
             Err(e) => {
                 error!(
-                    project_id = project_id,
                     tags.verification_status = "failed",
                     "Verification failed: Failed to parse RPC URL: {}",
                     e.to_string(),
@@ -363,7 +337,6 @@ pub async fn verify_handler_with_rpc(
             class_names,
             payload.source_code,
             None,
-            project_id,
         )
         .await
         {
@@ -376,7 +349,6 @@ pub async fn verify_handler_with_rpc(
             }
             Err(e) => {
                 error!(
-                    project_id = project_id,
                     tags.verification_status = "failed",
                     "Verification failed: {}",
                     e.to_string(),
@@ -389,9 +361,12 @@ pub async fn verify_handler_with_rpc(
             match parse_version_string_to_tuple(version_str) {
                 Ok(version) => Some(version),
                 Err(e) => {
-                    let error_message = format!("Failed to parse Cairo version: {}", e.to_string());
-                    error!(tags.verification_status = "failed", error_message);
-                    return (StatusCode::BAD_REQUEST, Json(error_message)).into_response();
+                    error!(
+                        tags.verification_status = "failed",
+                        "Failed to parse Cairo version: {}",
+                        e.to_string()
+                    );
+                    return (StatusCode::BAD_REQUEST, Json(e.to_string())).into_response();
                 }
             }
         } else {
@@ -427,7 +402,6 @@ pub async fn verify_handler_with_rpc(
             }
             Err(e) => {
                 error!(
-                    project_id = project_id,
                     tags.verification_status = "failed",
                     "Verification failed: {}",
                     e.to_string(),
