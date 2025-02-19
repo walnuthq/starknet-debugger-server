@@ -115,9 +115,9 @@ pub async fn start_downloader_scheduler(
     );
 
     run_task(
-        tool_name.clone(),
-        repo_env_var.clone(),
-        versioning_file_name_env_var.clone(),
+        tool_name.as_ref(),
+        repo_env_var.as_ref(),
+        versioning_file_name_env_var.as_ref(),
     )
         .await;
 
@@ -126,7 +126,7 @@ pub async fn start_downloader_scheduler(
         let repo_env_var = repo_env_var.clone();
         let versioning_file_name_env_var = versioning_file_name_env_var.clone();
         async move {
-            run_task(name, repo_env_var, versioning_file_name_env_var).await;
+            run_task(name.as_ref(), repo_env_var.as_ref(), versioning_file_name_env_var.as_ref()).await;
         }
     });
 
@@ -138,7 +138,7 @@ pub async fn start_downloader_scheduler(
     });
 }
 
-async fn run_task(tool_name: String, repo_env_var: String, versioning_file_name_env_var: String) {
+async fn run_task(tool_name: &str, repo_env_var: &str, versioning_file_name_env_var: &str) {
     info!("Starting {} update check", tool_name);
 
     let repo = match std::env::var(&repo_env_var) {
@@ -157,9 +157,9 @@ async fn run_task(tool_name: String, repo_env_var: String, versioning_file_name_
         }
     };
 
-    let res = match tool_name.as_str() {
-        "scarb" => check_periodically_scarb_updates(repo.as_str(), versioning_file_name.as_str()).await,
-        "sozo" => check_periodically_sozo_updates(repo.as_str(), versioning_file_name.as_str()).await,
+    let res = match tool_name {
+        "scarb" => check_periodically_scarb_updates(repo.as_ref(), versioning_file_name.as_ref()).await,
+        "sozo" => check_periodically_sozo_updates(repo.as_ref(), versioning_file_name.as_ref()).await,
         _ => {
             error!("Unknown tool name: {}", &tool_name);
             return;
