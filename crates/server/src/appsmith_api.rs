@@ -6,6 +6,7 @@ use axum::response::{IntoResponse, Response};
 use reqwest::StatusCode;
 use serde_json::json;
 use sqlx::{Pool, Postgres};
+use tracing::error;
 use crate::app_state::AppState;
 
 pub async fn get_verification_data(
@@ -13,7 +14,7 @@ pub async fn get_verification_data(
         headers: HeaderMap) -> Response {
     let auth_header = headers.get("Authorization");
     // some simple security protection
-    if auth_header.is_none() || auth_header.unwrap().to_str().unwrap() != "a3250f90-f974-498f-a2b0-371fa6b0db35" {
+    if auth_header.is_none() || auth_header.unwrap().to_str().unwrap_or("") != "a3250f90-f974-498f-a2b0-371fa6b0db35" {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     let total_failed_count = query_count(&state.db_pool, "failed").await.unwrap_or(0);
@@ -33,11 +34,17 @@ pub async fn get_verification_data(
                 date, status
             ORDER BY
                 date ASC, status;"#
-    ).fetch_all(&state.db_pool).await.unwrap_or_else(|_| vec![]);
+    ).fetch_all(&state.db_pool).await.unwrap_or_else(|_| {
+        error!("Failed to fetch last 30 days verifications");
+        vec![]
+    });
 
     let failed_verifications = sqlx::query!(
         r#"SELECT * FROM public.verification_status WHERE status = 'failed' ORDER BY created_at DESC LIMIT 20;"#
-    ).fetch_all(&state.db_pool).await.unwrap_or_else(|_| vec![]);
+    ).fetch_all(&state.db_pool).await.unwrap_or_else(|_| {
+        error!("Failed to fetch failed verifications");
+        vec![]
+    });
 
     let json_response = json!({
         "last_30_days": last_30_days_verifications.iter().map(|row| json!({
@@ -65,11 +72,16 @@ pub async fn get_verification_data(
 }
 
 async fn query_count(pool: &Pool<Postgres>, status: &str) -> Result<i64, sqlx::Error> {
-    let row = sqlx::query!(
+    let count = sqlx::query!(
             r#"SELECT COUNT(*) as count FROM public.verification_status WHERE status = $1"#,
             status
         )
         .fetch_one(pool)
-        .await?;
-    Ok(row.count.unwrap_or(0))
+        .await?
+        .count
+        .unwrap_or_else(|| {
+            error!("Failed to fetch verification status count for status {}.", status);
+            0
+        });
+    Ok(count)
 }
