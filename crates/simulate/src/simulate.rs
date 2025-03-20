@@ -377,6 +377,7 @@ fn run_simulation(
 
     if args.transaction_type.is_none() || args.transaction_type != Some(TransactionType::Declare) {
         let _execution_result = execute_call(
+            args.entry_point_selector,
             args.calldata.clone(),
             args.sender_address,
             args.transaction_type,
@@ -546,6 +547,7 @@ pub async fn simulate_transaction_by_hash(
                                     block_number: Some(BlockNumber(block_number)),
                                     nonce: Some(nonce),
                                     sender_address,
+                                    entry_point_selector: None,
                                     calldata: calldata.clone(),
                                     transaction_version,
                                     transaction_signature: Some(signature),
@@ -609,9 +611,10 @@ pub async fn simulate_transaction_by_hash(
                                 match decode_l1_event(&log) {
                                     Some(l1_event) => {
                                         dbg!(&l1_event);
-                                        let l1_handler_tx =
-                                            L1HandlerTransaction::try_from(l1_event)
-                                                .expect("test l1");
+                                        let l1_handler_tx = L1HandlerTransaction::try_from(
+                                            l1_event,
+                                        )
+                                        .expect("Can not convert L1 event to L1 Handlert tx type");
                                         dbg!(&l1_handler_tx);
                                         dbg!(&chain_id);
                                         let tx_hash = l1_handler_tx.calculate_transaction_hash(
@@ -634,10 +637,10 @@ pub async fn simulate_transaction_by_hash(
                                                 block_number: None,
                                                 nonce: Some(l1_handler_tx.nonce),
                                                 // FIXME: Get the sender address
-                                                sender_address: ContractAddress::try_from(
-                                                    Felt::ZERO,
-                                                )
-                                                .unwrap_or_default(),
+                                                sender_address: l1_handler_tx.contract_address,
+                                                entry_point_selector: Some(
+                                                    l1_handler_tx.entry_point_selector,
+                                                ),
                                                 calldata: l1_handler_tx.calldata.clone(),
                                                 transaction_version: TransactionVersion::ONE,
                                                 transaction_signature: None,
@@ -855,6 +858,7 @@ fn validate_call(
 }
 
 fn execute_call(
+    entry_point_selector: Option<EntryPointSelector>,
     calldata: Calldata,
     storage_address: ContractAddress,
     transaction_type: Option<TransactionType>,
@@ -867,11 +871,11 @@ fn execute_call(
     let mut execution_context =
         EntryPointExecutionContext::new(tx_context.clone(), ExecutionMode::Execute, false)?;
 
-    let entry_point_selector = selector_from_name(constants::EXECUTE_ENTRY_POINT_NAME);
+    let execute_entry_point_selector = selector_from_name(constants::EXECUTE_ENTRY_POINT_NAME);
 
     let mut execute_call = CallEntryPoint {
         entry_point_type: EntryPointType::External,
-        entry_point_selector,
+        entry_point_selector: execute_entry_point_selector,
         calldata: calldata.clone(),
         class_hash: None,
         code_address: None,
@@ -881,16 +885,13 @@ fn execute_call(
         initial_gas,
     };
 
-    if transaction_type.is_some() && transaction_type == Some(TransactionType::L1Handler) {
+    if transaction_type.is_some()
+        && transaction_type == Some(TransactionType::L1Handler)
+        && entry_point_selector.is_some()
+    {
         execute_call = CallEntryPoint {
             entry_point_type: EntryPointType::L1Handler,
-            /// FIXME: Once we have entry point selector change this one
-            entry_point_selector: EntryPointSelector(
-                Felt::from_hex(
-                    "0x008bce41827dd5484d80312a2e43bc42a896e3fcf75bf84c2b49339168dfa00a",
-                )
-                .unwrap(),
-            ),
+            entry_point_selector: entry_point_selector.unwrap(),
             calldata,
             class_hash: None,
             code_address: None,
@@ -901,6 +902,8 @@ fn execute_call(
         }
     }
 
+    dbg!(&execute_call);
+    dbg!(&execution_context);
     let execution_result = execute_call_entry_point(
         &mut execute_call,
         state,

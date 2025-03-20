@@ -25,6 +25,7 @@ use serde::Serializer;
 use starknet::core::types::ExecutionResult;
 use starknet::core::types::Felt;
 use starknet_api::block::BlockNumber;
+use starknet_api::core::EntryPointSelector;
 use starknet_api::core::{ChainId, ContractAddress, Nonce};
 use starknet_api::transaction::Calldata;
 use starknet_api::transaction::PaymasterData;
@@ -63,6 +64,7 @@ pub struct SimulationArgs {
     pub block_number: Option<BlockNumber>,
     pub nonce: Option<Nonce>,
     pub sender_address: ContractAddress,
+    pub entry_point_selector: Option<EntryPointSelector>,
     pub calldata: Calldata,
     pub transaction_version: TransactionVersion,
     pub transaction_signature: Option<TransactionSignature>,
@@ -90,6 +92,7 @@ impl SimulationArgs {
             block_number,
             nonce,
             sender_address,
+            entry_point_selector: None,
             calldata,
             transaction_version,
             transaction_signature: None,

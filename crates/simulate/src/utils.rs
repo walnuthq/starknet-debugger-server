@@ -115,7 +115,7 @@ pub fn transaction_type_to_string(tx_type: TransactionType) -> String {
         TransactionType::Declare => "DECLARE".to_string(),
         TransactionType::DeployAccount => "DEPLOY".to_string(),
         TransactionType::InvokeFunction => "INVOKE".to_string(),
-        TransactionType::L1Handler => "L1Handler".to_string(),
+        TransactionType::L1Handler => "L1HANDLER".to_string(),
     }
 }
 
