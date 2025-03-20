@@ -22,7 +22,7 @@ use walnut_shared::old_resource_bounds_mapping_to_resource_bounds_b_tree_map;
 use walnut_shared::vec_field_element_to_vec_felt;
 use walnut_shared::{felts_to_string, max_resource_bounds_map};
 
-use starknet_api::core::{ChainId, ContractAddress, Nonce, PatriciaKey};
+use starknet_api::core::{ChainId, ContractAddress, EntryPointSelector, Nonce, PatriciaKey};
 use starknet_api::data_availability::DataAvailabilityMode;
 use starknet_api::transaction::{
     Calldata, Fee, ResourceBoundsMapping, TransactionHash, TransactionSignature, TransactionVersion,
@@ -40,6 +40,7 @@ pub fn extract_submitted_tx(
 ) -> Option<(
     Nonce,
     ContractAddress,
+    EntryPointSelector,
     Calldata,
     TransactionVersion,
     TransactionType,
@@ -54,6 +55,7 @@ pub fn extract_submitted_tx(
                 field_element_to_felt(tx.contract_address)
                     .try_into()
                     .unwrap(),
+                EntryPointSelector::default(),
                 Calldata(vec_field_element_to_vec_felt(tx.calldata).into()),
                 TransactionVersion::ZERO,
                 TransactionType::InvokeFunction,
@@ -64,6 +66,7 @@ pub fn extract_submitted_tx(
             starknet_old_types::InvokeTransaction::V1(tx) => Some((
                 Nonce(field_element_to_felt(tx.nonce)),
                 field_element_to_felt(tx.sender_address).try_into().unwrap(),
+                EntryPointSelector::default(),
                 Calldata(vec_field_element_to_vec_felt(tx.calldata).into()),
                 TransactionVersion::ONE,
                 TransactionType::InvokeFunction,
@@ -74,6 +77,7 @@ pub fn extract_submitted_tx(
             starknet_old_types::InvokeTransaction::V3(tx) => Some((
                 Nonce(field_element_to_felt(tx.nonce)),
                 field_element_to_felt(tx.sender_address).try_into().unwrap(),
+                EntryPointSelector::default(),
                 Calldata(vec_field_element_to_vec_felt(tx.calldata).into()),
                 TransactionVersion::THREE,
                 TransactionType::InvokeFunction,
@@ -87,6 +91,7 @@ pub fn extract_submitted_tx(
                 starknet_old_types::DeclareTransaction::V0(tx) => Some((
                     Nonce::default(),
                     field_element_to_felt(tx.sender_address).try_into().unwrap(),
+                    EntryPointSelector::default(),
                     Calldata(vec_field_element_to_vec_felt(vec![tx.class_hash]).into()),
                     TransactionVersion::ZERO,
                     TransactionType::Declare,
@@ -97,6 +102,7 @@ pub fn extract_submitted_tx(
                 starknet_old_types::DeclareTransaction::V1(tx) => Some((
                     Nonce(field_element_to_felt(tx.nonce)),
                     field_element_to_felt(tx.sender_address).try_into().unwrap(),
+                    EntryPointSelector::default(),
                     Calldata(vec_field_element_to_vec_felt(vec![tx.class_hash]).into()),
                     TransactionVersion::ONE,
                     TransactionType::Declare,
@@ -107,6 +113,7 @@ pub fn extract_submitted_tx(
                 starknet_old_types::DeclareTransaction::V2(tx) => Some((
                     Nonce(field_element_to_felt(tx.nonce)),
                     field_element_to_felt(tx.sender_address).try_into().unwrap(),
+                    EntryPointSelector::default(),
                     Calldata(vec_field_element_to_vec_felt(vec![tx.class_hash]).into()),
                     TransactionVersion::TWO,
                     TransactionType::Declare,
@@ -117,6 +124,7 @@ pub fn extract_submitted_tx(
                 starknet_old_types::DeclareTransaction::V3(tx) => Some((
                     Nonce(field_element_to_felt(tx.nonce)),
                     field_element_to_felt(tx.sender_address).try_into().unwrap(),
+                    EntryPointSelector::default(),
                     Calldata(vec_field_element_to_vec_felt(vec![tx.class_hash]).into()),
                     TransactionVersion::THREE,
                     TransactionType::Declare,
@@ -131,6 +139,11 @@ pub fn extract_submitted_tx(
             field_element_to_felt(tx.contract_address)
                 .try_into()
                 .unwrap(),
+            EntryPointSelector(
+                field_element_to_felt(tx.entry_point_selector)
+                    .try_into()
+                    .unwrap(),
+            ),
             Calldata(vec_field_element_to_vec_felt(tx.calldata).into()),
             TransactionVersion::ONE,
             TransactionType::L1Handler,

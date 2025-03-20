@@ -460,6 +460,7 @@ pub async fn simulate_transaction_by_hash(
                 if let Some((
                     nonce,
                     sender_address,
+                    entry_point_selector,
                     calldata,
                     transaction_version,
                     transaction_type,
@@ -547,7 +548,7 @@ pub async fn simulate_transaction_by_hash(
                                     block_number: Some(BlockNumber(block_number)),
                                     nonce: Some(nonce),
                                     sender_address,
-                                    entry_point_selector: None,
+                                    entry_point_selector: Some(entry_point_selector),
                                     calldata: calldata.clone(),
                                     transaction_version,
                                     transaction_signature: Some(signature),
