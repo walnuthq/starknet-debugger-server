@@ -14,6 +14,8 @@ use crate::transaction_extraction::extract_starkgate_event_transaction_receipt;
 use crate::transaction_extraction::extract_submitted_tx;
 use crate::transaction_extraction::extract_transaction_contex;
 use crate::utils::calldata_to_hex;
+use crate::utils::eth_address_to_felt;
+use crate::utils::eth_u256_to_felt;
 use crate::utils::parse_transaction_hash;
 use crate::utils::transaction_type_to_string;
 use crate::ContractCall;
@@ -50,7 +52,6 @@ use ethers::types::Address;
 use ethers::types::Log;
 use ethers::types::H256;
 use ethers::types::U256;
-use ethers::utils::hex::hex;
 use ethers::utils::keccak256;
 use internal_tracing::build_debugger_data::debugger_data_maps_full_class_to_class;
 use internal_tracing::debugger_data_fetcher::fetch_classes_debugger_data;
@@ -94,12 +95,12 @@ enum EStarknetEvent {
         payload: Vec<String>,
     },
     LogMessageToL2 {
-        from_address: String,
-        to_address: String,
-        selector: String,
-        payload: Vec<String>,
-        nonce: String,
-        fee: String,
+        from_address: Address,
+        to_address: U256,
+        selector: U256,
+        payload: Vec<U256>,
+        nonce: U256,
+        fee: U256,
     },
 }
 
@@ -117,38 +118,23 @@ impl TryFrom<EStarknetEvent> for L1HandlerTransaction {
                 nonce,
                 fee: _,
             } => {
-                let sender_felt = Felt::from_hex(&from_address).map_err(|_| {
-                    StarknetApiError::InvalidResourceMappingInitializer(
-                        "Invalid Felt hex".to_string(),
-                    )
-                })?;
+                let sender_felt = eth_address_to_felt(from_address);
 
                 let mut calldata_vec = vec![sender_felt];
                 for p in payload {
-                    let felt = Felt::from_hex(&p).map_err(|_| {
-                        StarknetApiError::InvalidResourceMappingInitializer(
-                            "Invalid Felt hex".into(),
-                        )
-                    })?;
+                    let felt = eth_u256_to_felt(p);
                     calldata_vec.push(felt);
                 }
                 let calldata = Calldata(Arc::new(calldata_vec));
 
-                let to_felt = Felt::from_hex(&to_address).map_err(|_| {
-                    StarknetApiError::InvalidResourceMappingInitializer(
-                        "Invalid Felt hex".to_string(),
-                    )
-                })?;
-                let contract_address = ContractAddress::try_from(to_felt)?;
-                let entry_point_selector =
-                    EntryPointSelector(Felt::from_hex(&selector).map_err(|_| {
-                        StarknetApiError::InvalidResourceMappingInitializer(
-                            "Invalid Felt hex".into(),
-                        )
-                    })?);
-                let nonce = Nonce(Felt::from_hex(&nonce).map_err(|_| {
-                    StarknetApiError::InvalidResourceMappingInitializer("Invalid Felt hex".into())
-                })?);
+                let contract_address_to_felt = eth_u256_to_felt(to_address);
+                let contract_address = ContractAddress::try_from(contract_address_to_felt)?;
+
+                let selector_felt = eth_u256_to_felt(selector);
+                let entry_point_selector = EntryPointSelector(selector_felt);
+
+                let nonce_felt = eth_u256_to_felt(nonce);
+                let nonce = Nonce(nonce_felt);
 
                 Ok(L1HandlerTransaction {
                     version: starknet_api::transaction::TransactionVersion::ONE,
@@ -159,7 +145,7 @@ impl TryFrom<EStarknetEvent> for L1HandlerTransaction {
                 })
             }
             _ => Err(StarknetApiError::InvalidResourceMappingInitializer(
-                "Unsupported event variant".into(),
+                "Invalid event variant".to_string(),
             )),
         }
     }
@@ -362,7 +348,6 @@ fn run_simulation(
         args.paymaster_data,
     );
 
-    dbg!(&transaction_context);
     let mut cheatnet_state = CheatnetState {
         block_info,
         ..Default::default()
@@ -400,8 +385,6 @@ fn run_simulation(
             transaction_context.clone(),
             u64::MAX,
         );
-
-        dbg!(&_execution_result);
     }
 
     Ok(cheatnet_state)
@@ -630,6 +613,7 @@ pub async fn simulate_transaction_by_hash(
                                             L1HandlerTransaction::try_from(l1_event)
                                                 .expect("test l1");
                                         dbg!(&l1_handler_tx);
+                                        dbg!(&chain_id);
                                         let tx_hash = l1_handler_tx.calculate_transaction_hash(
                                             &chain_id,
                                             &starknet_api::transaction::TransactionVersion::ONE,
@@ -728,17 +712,17 @@ fn decode_l1_event(log: &Log) -> Option<EStarknetEvent> {
             "LogMessageToL2(address,uint256,uint256,uint256[],uint256,uint256)",
         ))
     {
-        let from_address = format!("{:?}", Address::from(topics[1]));
-        let to_address = hex::encode(topics[2].to_fixed_bytes());
-        let selector = hex::encode(topics[2].to_fixed_bytes());
+        let from_address = Address::from(topics[1]);
+        let to_address = U256::from_big_endian(topics[2].as_fixed_bytes());
+        let selector = U256::from_big_endian(topics[3].as_fixed_bytes());
 
         let decoded = <(Vec<U256>, U256, U256)>::decode(&log.data);
         match decoded {
             Ok(decoded) => {
                 dbg!(&decoded);
-                let payload = decoded.0.iter().map(|x| x.to_string()).collect();
-                let nonce = decoded.1.to_string();
-                let fee = decoded.2.to_string();
+                let payload = decoded.0;
+                let nonce = decoded.1;
+                let fee = decoded.2;
                 return Some(EStarknetEvent::LogMessageToL2 {
                     from_address,
                     to_address,

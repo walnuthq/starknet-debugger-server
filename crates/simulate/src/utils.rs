@@ -2,12 +2,14 @@ use crate::transaction_extraction::extract_chain_id_from_felt;
 use crate::SimulationRawArgs;
 use crate::TransactionSimulationError;
 use blockifier::transaction::transaction_types::TransactionType;
+use ethers::types::{Address, U256};
 use num_bigint::{BigInt, BigUint};
 use num_traits::Num;
 use starknet_api::block::BlockNumber;
 use starknet_api::core::{ChainId, ContractAddress, Nonce};
 use starknet_api::transaction::Calldata;
 use starknet_api::transaction::TransactionVersion;
+use starknet_api::StarknetApiError;
 use starknet_providers::Provider;
 use starknet_types_core::felt::Felt;
 use starknet_types_core::felt::CAIRO_PRIME_BIGINT;
@@ -123,4 +125,17 @@ pub fn calldata_to_hex(calldata: &Calldata) -> Vec<String> {
         .iter()
         .map(|felt| felt.to_hex_string())
         .collect::<Vec<String>>()
+}
+
+pub fn eth_address_to_felt(addr: Address) -> Felt {
+    let eth_address_as_bytes = addr.as_bytes();
+    let mut bytes: [u8; 32] = [0; 32];
+    bytes[12..32].copy_from_slice(eth_address_as_bytes);
+    Felt::from_bytes_be(&bytes)
+}
+
+pub fn eth_u256_to_felt(value: U256) -> Felt {
+    let mut bytes = [0u8; 32];
+    value.to_big_endian(&mut bytes);
+    Felt::from_bytes_be(&bytes)
 }
