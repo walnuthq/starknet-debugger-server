@@ -5,6 +5,7 @@ pub mod felt252_vec_compression;
 pub mod utils;
 use anyhow::{anyhow, Context, Result};
 use cairo_vm::vm::trace::trace_entry::RelocatedTraceEntry;
+use ethers::providers::{Http, Middleware, Provider as EthProvider};
 use serde::Serialize;
 use starknet::core::types::{
     BlockId, BlockTag, ContractStorageDiffItem, DeclaredClassItem, DeployedContractItem,
@@ -51,6 +52,22 @@ pub fn rpc_url(chain_id: &ChainId) -> Url {
         ChainId::Sepolia => {
             Url::parse("https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/F2hlQcDXGdcnbgnGOSfAVSeBJ9iJsofp")
                 .unwrap()
+        }
+        _ => panic!("Invalid chain id"),
+    }
+}
+
+pub fn create_eth_provider_from_url(rpc_url: String) -> EthProvider<Http> {
+    EthProvider::<Http>::try_from(rpc_url).expect("Not valid Ethereum RPC URL")
+}
+
+pub fn eth_rpc_url(chain_id: &ChainId) -> String {
+    match chain_id {
+        ChainId::Mainnet => {
+            "https://eth-mainnet.g.alchemy.com/v2/n5H76ndOfsRUrEkP0vxTVAOSkZ8nA-Da".to_string()
+        }
+        ChainId::Sepolia => {
+            "https://eth-sepolia.g.alchemy.com/v2/n5H76ndOfsRUrEkP0vxTVAOSkZ8nA-Da".to_string()
         }
         _ => panic!("Invalid chain id"),
     }

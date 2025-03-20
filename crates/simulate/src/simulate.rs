@@ -14,11 +14,12 @@ use crate::transaction_extraction::extract_starkgate_event_transaction_receipt;
 use crate::transaction_extraction::extract_submitted_tx;
 use crate::transaction_extraction::extract_transaction_contex;
 use crate::utils::calldata_to_hex;
-use crate::utils::eth_address_to_felt;
-use crate::utils::eth_u256_to_felt;
 use crate::utils::parse_transaction_hash;
+use crate::utils::parse_transaction_hash_per_network;
 use crate::utils::transaction_type_to_string;
 use crate::ContractCall;
+use crate::EStarknetEvent;
+use crate::ETransactionHashType;
 use crate::FunctionCallsMap;
 use crate::SimulationArgs;
 use crate::SimulationInfo;
@@ -66,13 +67,11 @@ use starknet::core::types::Felt;
 use starknet_api::block::BlockNumber;
 use starknet_api::block::BlockTimestamp;
 use starknet_api::core::EntryPointSelector;
-use starknet_api::core::Nonce;
 use starknet_api::core::{ChainId, ContractAddress};
 use starknet_api::deprecated_contract_class::EntryPointType;
 use starknet_api::transaction::L1HandlerTransaction;
 use starknet_api::transaction::TransactionVersion;
 use starknet_api::transaction::{Calldata, TransactionHash, TransactionHasher};
-use starknet_api::StarknetApiError;
 use starknet_old::core::types as starknet_old_types;
 use starknet_providers::Provider;
 use std::collections::HashMap;
@@ -85,71 +84,10 @@ use walnut_shared::abi_processor::AbiProcessor;
 use walnut_shared::felt_to_field_element;
 use walnut_shared::felts_to_string;
 use walnut_shared::field_element_to_felt;
-use walnut_shared::{chain_id_to_readable_string, create_rpc_client_from_url};
-
-#[derive(Debug)]
-enum EStarknetEvent {
-    LogMessageToL1 {
-        from_address: String,
-        to_address: String,
-        payload: Vec<String>,
-    },
-    LogMessageToL2 {
-        from_address: Address,
-        to_address: U256,
-        selector: U256,
-        payload: Vec<U256>,
-        nonce: U256,
-        fee: U256,
-    },
-}
-
-impl TryFrom<EStarknetEvent> for L1HandlerTransaction {
-    type Error = StarknetApiError;
-
-    // FIXME: MarijaM - working on this atm
-    fn try_from(event: EStarknetEvent) -> Result<Self, Self::Error> {
-        match event {
-            EStarknetEvent::LogMessageToL2 {
-                from_address,
-                to_address,
-                selector,
-                payload,
-                nonce,
-                fee: _,
-            } => {
-                let sender_felt = eth_address_to_felt(from_address);
-
-                let mut calldata_vec = vec![sender_felt];
-                for p in payload {
-                    let felt = eth_u256_to_felt(p);
-                    calldata_vec.push(felt);
-                }
-                let calldata = Calldata(Arc::new(calldata_vec));
-
-                let contract_address_to_felt = eth_u256_to_felt(to_address);
-                let contract_address = ContractAddress::try_from(contract_address_to_felt)?;
-
-                let selector_felt = eth_u256_to_felt(selector);
-                let entry_point_selector = EntryPointSelector(selector_felt);
-
-                let nonce_felt = eth_u256_to_felt(nonce);
-                let nonce = Nonce(nonce_felt);
-
-                Ok(L1HandlerTransaction {
-                    version: starknet_api::transaction::TransactionVersion::ONE,
-                    nonce,
-                    contract_address,
-                    entry_point_selector,
-                    calldata,
-                })
-            }
-            _ => Err(StarknetApiError::InvalidResourceMappingInitializer(
-                "Invalid event variant".to_string(),
-            )),
-        }
-    }
-}
+use walnut_shared::{
+    chain_id_to_readable_string, create_eth_provider_from_url, create_rpc_client_from_url,
+    eth_rpc_url,
+};
 
 pub async fn simulate(
     db_pool: &Pool<Postgres>,
@@ -333,8 +271,6 @@ fn run_simulation(
     args: SimulationArgs,
     cached_fork_state: &mut CachedState<ForkStateReader>,
 ) -> Result<CheatnetState, TransactionSimulationError> {
-    //TODO: L1HandlerTransaction has only Depricated tx info
-    //https://github.com/starkware-libs/sequencer/blob/8774c3ab6d63d79b0528ab5481a67e7189a56bca/crates/blockifier/src/transaction/transactions.rs#L164
     let transaction_context = extract_transaction_contex(
         &args.sender_address,
         &args.transaction_version,
@@ -445,125 +381,102 @@ pub async fn simulate_transaction_by_hash(
     tx_hash: &str,
     chain_id: Option<ChainId>,
 ) -> Result<TransactionSimulationResult, TransactionSimulationError> {
+    if let Ok(transaction_hash) = parse_transaction_hash_per_network(tx_hash) {
+        let result = match transaction_hash {
+            ETransactionHashType::Starknet(starknet_hash) => {
+                simulate_starknet_transaction_by_hash(
+                    db_pool,
+                    s3_client,
+                    rpc_url,
+                    starknet_hash,
+                    chain_id,
+                )
+                .await?
+            }
+            ETransactionHashType::Ethereum(ethereum_hash) => {
+                simulate_ethereum_transaction_by_hash(
+                    db_pool,
+                    s3_client,
+                    rpc_url,
+                    ethereum_hash,
+                    chain_id,
+                )
+                .await?
+            }
+        };
+        Ok(result)
+    } else {
+        Err(TransactionSimulationError::TransactionHashNotFound)
+    }
+}
+
+async fn simulate_starknet_transaction_by_hash(
+    db_pool: &Pool<Postgres>,
+    s3_client: &aws_sdk_s3::Client,
+    rpc_url: Url,
+    transaction_hash: Felt,
+    chain_id: Option<ChainId>,
+) -> Result<TransactionSimulationResult, TransactionSimulationError> {
     let provider_client = create_rpc_client_from_url(rpc_url.clone());
-    // TODO: Add here enum and check if the hash is starknet - if it is in Field element range,
-    // other check on ethereum - todo for the end
-    let transaction_hash = parse_transaction_hash(tx_hash);
-    dbg!(&tx_hash);
-    match transaction_hash {
-        Ok(transaction_hash) => {
-            // Fetch transaction details
-            let transaction = provider_client
-                .get_transaction_by_hash(felt_to_field_element(transaction_hash))
+    // Fetch transaction details
+    let transaction = provider_client
+        .get_transaction_by_hash(felt_to_field_element(transaction_hash))
+        .await;
+    if let Ok(transaction) = transaction {
+        if let Some((
+            nonce,
+            sender_address,
+            entry_point_selector,
+            calldata,
+            transaction_version,
+            transaction_type,
+            signature,
+            resource_bounds,
+            paymaster_data,
+        )) = extract_submitted_tx(transaction)
+        {
+            // Fetch receipt
+            let transaction_receipt = provider_client
+                .get_transaction_receipt(felt_to_field_element(transaction_hash))
                 .await;
-            if let Ok(transaction) = transaction {
-                if let Some((
-                    nonce,
-                    sender_address,
-                    entry_point_selector,
-                    calldata,
-                    transaction_version,
-                    transaction_type,
-                    signature,
-                    resource_bounds,
-                    paymaster_data,
-                )) = extract_submitted_tx(transaction)
+            if let Ok(transaction_receipt) = transaction_receipt {
+                //Fetch block number
+                if let Some(block_number) =
+                    extract_block_number_transaction_receipt(&transaction_receipt)
                 {
-                    // Fetch receipt
-                    let transaction_receipt = provider_client
-                        .get_transaction_receipt(felt_to_field_element(transaction_hash))
-                        .await;
-                    dbg!(&transaction_receipt);
-                    if let Ok(transaction_receipt) = transaction_receipt {
-                        //Fetch block number
-                        if let Some(block_number) =
-                            extract_block_number_transaction_receipt(&transaction_receipt)
-                        {
-                            // Fetch or derive chain_id
-                            let chain_id = match chain_id {
-                                Some(chain_id) => chain_id,
-                                None => extract_chain_id_from_felt(field_element_to_felt(
-                                    provider_client.chain_id().await.map_err(|_| {
-                                        TransactionSimulationError::FailedToFetchChainId
-                                    })?,
-                                ))?,
+                    // Fetch or derive chain_id
+                    let chain_id = match chain_id {
+                        Some(chain_id) => chain_id,
+                        None => extract_chain_id_from_felt(field_element_to_felt(
+                            provider_client
+                                .chain_id()
+                                .await
+                                .map_err(|_| TransactionSimulationError::FailedToFetchChainId)?,
+                        ))?,
+                    };
+
+                    // Check for execution status
+                    if let Some(starknet_old_types::ExecutionResult::Reverted { reason }) =
+                        extract_execution_status_transaction_receipt(&transaction_receipt)
+                    {
+                        if reason.contains("RunResources") {
+                            // Fetch block timestamp
+                            let block_timestamp =
+                                extract_block_timestamp(&provider_client, block_number).await?;
+
+                            let simulation_info = SimulationInfo {
+                                contract_calls_map: ContractCallsMap::new(),
+                                function_calls_map: FunctionCallsMap::new(),
+                                event_calls_map: EventCallsMap::default(),
+                                events: Vec::new(),
+                                execution_result: ExecutionResult::Reverted { reason },
+                                simulation_debugger_data: Some(SimulationDebuggerData {
+                                    classes_debugger_data: HashMap::new(),
+                                    debugger_trace: Vec::new(),
+                                }),
                             };
-
-                            // Check for execution status
-                            if let Some(starknet_old_types::ExecutionResult::Reverted { reason }) =
-                                extract_execution_status_transaction_receipt(&transaction_receipt)
-                            {
-                                if reason.contains("RunResources") {
-                                    // Fetch block timestamp
-                                    let block_timestamp =
-                                        extract_block_timestamp(&provider_client, block_number)
-                                            .await?;
-
-                                    let simulation_info = SimulationInfo {
-                                        contract_calls_map: ContractCallsMap::new(),
-                                        function_calls_map: FunctionCallsMap::new(),
-                                        event_calls_map: EventCallsMap::default(),
-                                        events: Vec::new(),
-                                        execution_result: ExecutionResult::Reverted { reason },
-                                        simulation_debugger_data: Some(SimulationDebuggerData {
-                                            classes_debugger_data: HashMap::new(),
-                                            debugger_trace: Vec::new(),
-                                        }),
-                                    };
-                                    return Ok(TransactionSimulationResult {
-                                        simulation_result: simulation_info,
-                                        chain_id: chain_id_to_readable_string(&chain_id),
-                                        block_number: starknet_old_types::BlockId::Number(
-                                            block_number,
-                                        ),
-                                        block_timestamp: block_timestamp.0,
-                                        nonce: nonce.0.to_u64(),
-                                        sender_address: sender_address.0.to_string(),
-                                        calldata: calldata_to_hex(&calldata),
-                                        transaction_version: transaction_version.0.to_u64().unwrap()
-                                            as usize,
-                                        transaction_type: transaction_type_to_string(
-                                            transaction_type,
-                                        ),
-                                        transaction_index_in_block: None,
-                                        total_transactions_in_block: None,
-                                    });
-                                }
-                            }
-
-                            let strkgate_event =
-                                extract_starkgate_event_transaction_receipt(&transaction_receipt);
-                            // Perform transaction simulation
-                            let (
-                                simulation_result,
-                                block_timestamp,
-                                transaction_index_in_block,
-                                total_transactions_in_block,
-                            ) = simulate(
-                                db_pool,
-                                s3_client,
-                                SimulationArgs {
-                                    rpc_url,
-                                    chain_id: chain_id.clone(),
-                                    block_number: Some(BlockNumber(block_number)),
-                                    nonce: Some(nonce),
-                                    sender_address,
-                                    entry_point_selector: Some(entry_point_selector),
-                                    calldata: calldata.clone(),
-                                    transaction_version,
-                                    transaction_signature: Some(signature),
-                                    transaction_hash: Some(TransactionHash(transaction_hash)),
-                                    transaction_type: Some(transaction_type),
-                                    resource_bounds: Some(resource_bounds),
-                                    paymaster_data: Some(paymaster_data),
-                                    strkgate_event,
-                                },
-                            )
-                            .await?;
-
-                            // Build and return simulation result
                             return Ok(TransactionSimulationResult {
-                                simulation_result,
+                                simulation_result: simulation_info,
                                 chain_id: chain_id_to_readable_string(&chain_id),
                                 block_number: starknet_old_types::BlockId::Number(block_number),
                                 block_timestamp: block_timestamp.0,
@@ -573,120 +486,141 @@ pub async fn simulate_transaction_by_hash(
                                 transaction_version: transaction_version.0.to_u64().unwrap()
                                     as usize,
                                 transaction_type: transaction_type_to_string(transaction_type),
-                                transaction_index_in_block: Some(transaction_index_in_block),
-                                total_transactions_in_block: Some(total_transactions_in_block),
+                                transaction_index_in_block: None,
+                                total_transactions_in_block: None,
                             });
                         }
                     }
+
+                    let strkgate_event =
+                        extract_starkgate_event_transaction_receipt(&transaction_receipt);
+                    // Perform transaction simulation
+                    let (
+                        simulation_result,
+                        block_timestamp,
+                        transaction_index_in_block,
+                        total_transactions_in_block,
+                    ) = simulate(
+                        db_pool,
+                        s3_client,
+                        SimulationArgs {
+                            rpc_url,
+                            chain_id: chain_id.clone(),
+                            block_number: Some(BlockNumber(block_number)),
+                            nonce: Some(nonce),
+                            sender_address,
+                            entry_point_selector: Some(entry_point_selector),
+                            calldata: calldata.clone(),
+                            transaction_version,
+                            transaction_signature: Some(signature),
+                            transaction_hash: Some(TransactionHash(transaction_hash)),
+                            transaction_type: Some(transaction_type),
+                            resource_bounds: Some(resource_bounds),
+                            paymaster_data: Some(paymaster_data),
+                            strkgate_event,
+                        },
+                    )
+                    .await?;
+
+                    // Build and return simulation result
+                    return Ok(TransactionSimulationResult {
+                        simulation_result,
+                        chain_id: chain_id_to_readable_string(&chain_id),
+                        block_number: starknet_old_types::BlockId::Number(block_number),
+                        block_timestamp: block_timestamp.0,
+                        nonce: nonce.0.to_u64(),
+                        sender_address: sender_address.0.to_string(),
+                        calldata: calldata_to_hex(&calldata),
+                        transaction_version: transaction_version.0.to_u64().unwrap() as usize,
+                        transaction_type: transaction_type_to_string(transaction_type),
+                        transaction_index_in_block: Some(transaction_index_in_block),
+                        total_transactions_in_block: Some(total_transactions_in_block),
+                    });
+                }
+            }
+        }
+    }
+    Err(TransactionSimulationError::TransactionHashNotFound)
+}
+
+pub async fn simulate_ethereum_transaction_by_hash(
+    db_pool: &Pool<Postgres>,
+    s3_client: &aws_sdk_s3::Client,
+    rpc_url: Url,
+    transaction_hash: H256,
+    chain_id: Option<ChainId>,
+) -> Result<TransactionSimulationResult, TransactionSimulationError> {
+    let chain_id = match chain_id {
+        Some(cid) => cid,
+        None => return Err(TransactionSimulationError::TransactionHashNotFound),
+    };
+    // Fetch the tx from L1
+    let eth_rpc_url = eth_rpc_url(&chain_id);
+    let provider_eth_client = create_eth_provider_from_url(eth_rpc_url);
+    let transaction_receipt = provider_eth_client
+        .get_transaction_receipt(transaction_hash)
+        .await;
+
+    match transaction_receipt {
+        Ok(Some(receipt)) => {
+            for log in receipt.logs {
+                if let Some(l1_event) = decode_l1_event(&log) {
+                    // Convert the event data to L1HandlerTransaction
+                    let l1_handler_tx = L1HandlerTransaction::try_from(l1_event)
+                        .expect("Can not convert L1 event to L1 Handler tx type");
+                    // Izračunaj transaction hash (kao Option<TransactionHash>)
+                    let l2_tx_hash: Option<TransactionHash> = l1_handler_tx
+                        .calculate_transaction_hash(
+                            &chain_id,
+                            &starknet_api::transaction::TransactionVersion::ZERO,
+                        )
+                        .ok();
+                    // Pozovi funkciju simulacije sa dobijenim argumentima
+                    let (
+                        simulation_result,
+                        block_timestamp,
+                        transaction_index_in_block,
+                        total_transactions_in_block,
+                    ) = simulate(
+                        db_pool,
+                        s3_client,
+                        SimulationArgs {
+                            rpc_url: rpc_url.clone(),
+                            chain_id: chain_id.clone(),
+                            block_number: None,
+                            nonce: Some(l1_handler_tx.nonce),
+                            sender_address: l1_handler_tx.contract_address,
+                            entry_point_selector: Some(l1_handler_tx.entry_point_selector),
+                            calldata: l1_handler_tx.calldata.clone(),
+                            transaction_version: TransactionVersion::ZERO,
+                            transaction_signature: None,
+                            transaction_hash: l2_tx_hash,
+                            transaction_type: Some(TransactionType::L1Handler),
+                            resource_bounds: None,
+                            paymaster_data: None,
+                            strkgate_event: None,
+                        },
+                    )
+                    .await?;
+                    return Ok(TransactionSimulationResult {
+                        simulation_result,
+                        chain_id: chain_id_to_readable_string(&chain_id),
+                        block_number: starknet_old_types::BlockId::Number(1),
+                        block_timestamp: block_timestamp.0,
+                        nonce: l1_handler_tx.nonce.0.to_u64(),
+                        sender_address: l1_handler_tx.contract_address.to_string(),
+                        calldata: calldata_to_hex(&l1_handler_tx.calldata),
+                        transaction_version: TransactionVersion::ZERO.0.to_u64().unwrap() as usize,
+                        transaction_type: transaction_type_to_string(TransactionType::L1Handler),
+                        transaction_index_in_block: Some(transaction_index_in_block),
+                        total_transactions_in_block: Some(total_transactions_in_block),
+                    });
                 }
             }
             Err(TransactionSimulationError::TransactionHashNotFound)
         }
-        Err(err) => {
-            if let Some(chain_id) = chain_id {
-                // try to get transaction from L1
-                let eth_rpc_url = match chain_id {
-                    ChainId::Mainnet => {
-                        "https://eth-mainnet.g.alchemy.com/v2/n5H76ndOfsRUrEkP0vxTVAOSkZ8nA-Da"
-                            .to_string()
-                    }
-                    ChainId::Sepolia => {
-                        "https://eth-sepolia.g.alchemy.com/v2/n5H76ndOfsRUrEkP0vxTVAOSkZ8nA-Da"
-                            .to_string()
-                    }
-                    _ => panic!("Invalid chain id"),
-                };
-
-                let provider_eth =
-                    EthProvider::<Http>::try_from(eth_rpc_url).expect("Not valid url");
-                let transaction_hash: ethers::types::H256 =
-                    tx_hash.parse().expect("Parsing to h256");
-
-                let transaction_receipt =
-                    provider_eth.get_transaction_receipt(transaction_hash).await;
-                dbg!(&transaction_receipt);
-                match transaction_receipt {
-                    Ok(transaction_receipt) => {
-                        if let Some(receipt) = transaction_receipt {
-                            for log in receipt.logs {
-                                match decode_l1_event(&log) {
-                                    Some(l1_event) => {
-                                        dbg!(&l1_event);
-                                        let l1_handler_tx = L1HandlerTransaction::try_from(
-                                            l1_event,
-                                        )
-                                        .expect("Can not convert L1 event to L1 Handlert tx type");
-                                        dbg!(&l1_handler_tx);
-                                        dbg!(&chain_id);
-                                        let tx_hash = l1_handler_tx.calculate_transaction_hash(
-                                            &chain_id,
-                                            &starknet_api::transaction::TransactionVersion::ZERO,
-                                        );
-                                        dbg!(&tx_hash);
-                                        // Perform transaction simulation
-                                        let (
-                                            simulation_result,
-                                            block_timestamp,
-                                            transaction_index_in_block,
-                                            total_transactions_in_block,
-                                        ) = simulate(
-                                            db_pool,
-                                            s3_client,
-                                            SimulationArgs {
-                                                rpc_url,
-                                                chain_id: chain_id.clone(),
-                                                block_number: None,
-                                                nonce: Some(l1_handler_tx.nonce),
-                                                // FIXME: Get the sender address
-                                                sender_address: l1_handler_tx.contract_address,
-                                                entry_point_selector: Some(
-                                                    l1_handler_tx.entry_point_selector,
-                                                ),
-                                                calldata: l1_handler_tx.calldata.clone(),
-                                                transaction_version: TransactionVersion::ONE,
-                                                transaction_signature: None,
-                                                transaction_hash: None,
-                                                transaction_type: Some(TransactionType::L1Handler),
-                                                resource_bounds: None,
-                                                paymaster_data: None,
-                                                strkgate_event: None,
-                                            },
-                                        )
-                                        .await?;
-
-                                        // FIXME: get the sequencer sender address
-                                        return Ok(TransactionSimulationResult {
-                                            simulation_result,
-                                            chain_id: chain_id_to_readable_string(&chain_id),
-                                            block_number: starknet_old_types::BlockId::Number(1),
-                                            block_timestamp: block_timestamp.0,
-                                            nonce: l1_handler_tx.nonce.0.to_u64(),
-                                            sender_address: "Sender address".to_string(),
-                                            calldata: calldata_to_hex(&l1_handler_tx.calldata),
-                                            transaction_version: 0.to_u64().unwrap() as usize,
-                                            transaction_type: transaction_type_to_string(
-                                                TransactionType::L1Handler,
-                                            ),
-                                            transaction_index_in_block: Some(
-                                                transaction_index_in_block,
-                                            ),
-                                            total_transactions_in_block: Some(
-                                                total_transactions_in_block,
-                                            ),
-                                        });
-                                    }
-                                    None => continue,
-                                }
-                            }
-                        }
-                        Err(TransactionSimulationError::TransactionHashNotFound)
-                    }
-                    Err(_err) => Err(TransactionSimulationError::TransactionHashNotFound),
-                }
-            } else {
-                Err(TransactionSimulationError::TransactionHashNotFound)
-            }
-        }
+        Ok(None) => Err(TransactionSimulationError::TransactionHashNotFound),
+        Err(_) => Err(TransactionSimulationError::TransactionHashNotFound),
     }
 }
 
@@ -698,50 +632,51 @@ fn decode_l1_event(log: &Log) -> Option<EStarknetEvent> {
 
     let event_signature = topics[0];
     // TODO: Add other events
-    if event_signature == H256::from(keccak256("LogMessageToL1(uint256,address,uint256[])")) {
-        let from_address = format!("{:?}", Address::from(topics[1]));
-        let to_address = topics[2].to_string();
+    match event_signature {
+        sig if sig == H256::from(keccak256("LogMessageToL1(uint256,address,uint256[])")) => {
+            if topics.len() < 3 {
+                return None; // Osigurava da ima dovoljno podataka
+            }
 
-        if let Ok(decoded) = <Vec<U256>>::decode(&log.data) {
-            let payload = decoded.iter().map(|x| x.to_string()).collect();
+            let from_address = format!("{:?}", Address::from(topics[1]));
+            let to_address = topics[2].to_string();
 
-            return Some(EStarknetEvent::LogMessageToL1 {
-                from_address,
-                to_address,
-                payload,
-            });
+            <Vec<U256>>::decode(&log.data)
+                .ok()
+                .map(|decoded| EStarknetEvent::LogMessageToL1 {
+                    from_address,
+                    to_address,
+                    payload: decoded.iter().map(U256::to_string).collect(),
+                })
         }
-    } else if event_signature
-        == H256::from(keccak256(
-            "LogMessageToL2(address,uint256,uint256,uint256[],uint256,uint256)",
-        ))
-    {
-        let from_address = Address::from(topics[1]);
-        let to_address = U256::from_big_endian(topics[2].as_fixed_bytes());
-        let selector = U256::from_big_endian(topics[3].as_fixed_bytes());
 
-        let decoded = <(Vec<U256>, U256, U256)>::decode(&log.data);
-        match decoded {
-            Ok(decoded) => {
-                dbg!(&decoded);
-                let payload = decoded.0;
-                let nonce = decoded.1;
-                let fee = decoded.2;
-                return Some(EStarknetEvent::LogMessageToL2 {
+        sig if sig
+            == H256::from(keccak256(
+                "LogMessageToL2(address,uint256,uint256,uint256[],uint256,uint256)",
+            )) =>
+        {
+            if topics.len() < 4 {
+                return None;
+            }
+
+            let from_address = Address::from(topics[1]);
+            let to_address = U256::from_big_endian(topics[2].as_fixed_bytes());
+            let selector = U256::from_big_endian(topics[3].as_fixed_bytes());
+
+            <(Vec<U256>, U256, U256)>::decode(&log.data)
+                .ok()
+                .map(|(payload, nonce, fee)| EStarknetEvent::LogMessageToL2 {
                     from_address,
                     to_address,
                     selector,
                     payload,
                     nonce,
                     fee,
-                });
-            }
-            Err(err) => {
-                dbg!("Error pri decodingu {}", err);
-            }
+                })
         }
+
+        _ => None,
     }
-    None
 }
 
 fn extract_sierra_and_cairo_versions(sierra_program: &[Felt]) -> (Option<String>, Option<String>) {

@@ -15,6 +15,7 @@ use blockifier::transaction::errors::TransactionExecutionError;
 use blockifier::transaction::transaction_types::TransactionType;
 use contract_call::ContractCall;
 use contract_calls_map::ContractCallsMap;
+use ethers::types::{Address, H256, U256};
 use events::EmittedEvent;
 use internal_tracing::event_calls_map::EventCallsMap;
 use internal_tracing::function_calls_map::FunctionCallsMap;
@@ -28,22 +29,31 @@ use starknet_api::block::BlockNumber;
 use starknet_api::core::EntryPointSelector;
 use starknet_api::core::{ChainId, ContractAddress, Nonce};
 use starknet_api::transaction::Calldata;
+use starknet_api::transaction::L1HandlerTransaction;
 use starknet_api::transaction::PaymasterData;
 use starknet_api::transaction::ResourceBoundsMapping;
 use starknet_api::transaction::TransactionHash;
 use starknet_api::transaction::TransactionSignature;
 use starknet_api::transaction::TransactionVersion;
+use starknet_api::StarknetApiError;
 use starknet_old::core::types as starknet_old_types;
 use starknet_providers::ProviderError;
 use starknet_types_core::felt::FromStrError;
+use std::sync::Arc;
 use thiserror::Error;
 use tracing::error;
 use url::Url;
 use utils::{
-    parse_block_number, parse_calldata, parse_chain_id_and_rpc_url, parse_contract_address,
-    parse_nonce, parse_transaction_version,
+    eth_address_to_felt, eth_u256_to_felt, parse_block_number, parse_calldata,
+    parse_chain_id_and_rpc_url, parse_contract_address, parse_nonce, parse_transaction_version,
 };
 use walnut_shared::Parameter;
+
+#[derive(Debug)]
+pub enum ETransactionHashType {
+    Starknet(Felt),
+    Ethereum(H256),
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SimulationRawArgs {
@@ -193,4 +203,74 @@ pub struct ContractCallEvent {
     pub keys: Vec<String>,
     pub parameters: Vec<Parameter>,
     pub data: Vec<String>,
+}
+
+#[derive(Debug)]
+pub enum EStarknetEvent {
+    LogMessageToL1 {
+        from_address: String,
+        to_address: String,
+        payload: Vec<String>,
+    },
+    LogMessageToL2 {
+        from_address: Address,
+        to_address: U256,
+        selector: U256,
+        payload: Vec<U256>,
+        nonce: U256,
+        fee: U256,
+    },
+    ConsumedMessageToL2 {
+        from_address: Address,
+        to_address: U256,
+        selector: U256,
+        payload: Vec<U256>,
+        nonce: U256,
+    },
+}
+
+impl TryFrom<EStarknetEvent> for L1HandlerTransaction {
+    type Error = StarknetApiError;
+
+    fn try_from(event: EStarknetEvent) -> Result<Self, Self::Error> {
+        match event {
+            EStarknetEvent::LogMessageToL2 {
+                from_address,
+                to_address,
+                selector,
+                payload,
+                nonce,
+                fee: _,
+            } => {
+                let sender_felt = eth_address_to_felt(from_address);
+
+                let mut calldata_vec = vec![sender_felt];
+                for p in payload {
+                    let felt = eth_u256_to_felt(p);
+                    calldata_vec.push(felt);
+                }
+                let calldata = Calldata(Arc::new(calldata_vec));
+
+                let contract_address_to_felt = eth_u256_to_felt(to_address);
+                let contract_address = ContractAddress::try_from(contract_address_to_felt)?;
+
+                let selector_felt = eth_u256_to_felt(selector);
+                let entry_point_selector = EntryPointSelector(selector_felt);
+
+                let nonce_felt = eth_u256_to_felt(nonce);
+                let nonce = Nonce(nonce_felt);
+
+                Ok(L1HandlerTransaction {
+                    version: starknet_api::transaction::TransactionVersion::ONE,
+                    nonce,
+                    contract_address,
+                    entry_point_selector,
+                    calldata,
+                })
+            }
+            _ => Err(StarknetApiError::InvalidResourceMappingInitializer(
+                "Invalid event variant".to_string(),
+            )),
+        }
+    }
 }

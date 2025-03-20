@@ -145,7 +145,7 @@ pub fn extract_submitted_tx(
                     .unwrap(),
             ),
             Calldata(vec_field_element_to_vec_felt(tx.calldata).into()),
-            TransactionVersion::ONE,
+            TransactionVersion::ZERO,
             TransactionType::L1Handler,
             TransactionSignature::default(),
             ResourceBoundsMapping::default(),
