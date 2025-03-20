@@ -619,7 +619,7 @@ pub async fn simulate_transaction_by_hash(
                                         dbg!(&chain_id);
                                         let tx_hash = l1_handler_tx.calculate_transaction_hash(
                                             &chain_id,
-                                            &starknet_api::transaction::TransactionVersion::ONE,
+                                            &starknet_api::transaction::TransactionVersion::ZERO,
                                         );
                                         dbg!(&tx_hash);
                                         // Perform transaction simulation
@@ -902,8 +902,6 @@ fn execute_call(
         }
     }
 
-    dbg!(&execute_call);
-    dbg!(&execution_context);
     let execution_result = execute_call_entry_point(
         &mut execute_call,
         state,
