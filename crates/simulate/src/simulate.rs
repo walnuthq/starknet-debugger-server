@@ -48,6 +48,7 @@ use cheatnet::runtime_extensions::call_to_blockifier_runtime_extension::rpc::Cal
 use cheatnet::runtime_extensions::call_to_blockifier_runtime_extension::rpc::CallResult;
 use cheatnet::state::CheatnetState;
 use ethers::abi::AbiDecode;
+use ethers::abi::AbiEncode;
 use ethers::providers::{Http, Middleware, Provider as EthProvider};
 use ethers::types::Address;
 use ethers::types::Log;
@@ -373,6 +374,8 @@ pub async fn simulate_by_calldata(
         transaction_type: transaction_type_to_string(TransactionType::InvokeFunction),
         transaction_index_in_block: Some(transaction_index_in_block),
         total_transactions_in_block: Some(total_transactions_in_block),
+        l1_tx_hash: None,
+        l2_tx_hash: None,
     })
 }
 
@@ -490,6 +493,8 @@ async fn simulate_starknet_transaction_by_hash(
                                 transaction_type: transaction_type_to_string(transaction_type),
                                 transaction_index_in_block: None,
                                 total_transactions_in_block: None,
+                                l1_tx_hash: None,
+                                l2_tx_hash: Some(transaction_hash.to_hex_string()),
                             });
                         }
                     }
@@ -537,6 +542,8 @@ async fn simulate_starknet_transaction_by_hash(
                         transaction_type: transaction_type_to_string(transaction_type),
                         transaction_index_in_block: Some(transaction_index_in_block),
                         total_transactions_in_block: Some(total_transactions_in_block),
+                        l1_tx_hash: None,
+                        l2_tx_hash: Some(transaction_hash.to_hex_string()),
                     });
                 }
             }
@@ -578,14 +585,13 @@ pub async fn simulate_ethereum_transaction_by_hash(
                         )
                         .ok();
                     // Pozovi funkciju simulacije sa dobijenim argumentima
-
-                    let block_number = match l2_tx_hash {
-                        Some(l2_tx_hash) => fetch_tx_block_number_from_voyager(
-                            &chain_id,
-                            &l2_tx_hash.to_hex_string(),
-                        )
-                        .await
-                        .ok(),
+                    let l2_tx_hash_hex = l2_tx_hash.map(|hash| hash.to_hex_string());
+                    let block_number = match &l2_tx_hash_hex {
+                        Some(l2_tx_hash_hex) => {
+                            fetch_tx_block_number_from_voyager(&chain_id, l2_tx_hash_hex)
+                                .await
+                                .ok()
+                        }
                         None => None,
                     };
 
@@ -618,7 +624,11 @@ pub async fn simulate_ethereum_transaction_by_hash(
                     return Ok(TransactionSimulationResult {
                         simulation_result,
                         chain_id: chain_id_to_readable_string(&chain_id),
-                        block_number: starknet_old_types::BlockId::Number(1),
+                        block_number: block_number
+                            .map(|bn| starknet_old_types::BlockId::Number(bn))
+                            .unwrap_or(starknet_old_types::BlockId::Tag(
+                                starknet_old_types::BlockTag::Latest,
+                            )),
                         block_timestamp: block_timestamp.0,
                         nonce: l1_handler_tx.nonce.0.to_u64(),
                         sender_address: l1_handler_tx.contract_address.to_string(),
@@ -627,6 +637,8 @@ pub async fn simulate_ethereum_transaction_by_hash(
                         transaction_type: transaction_type_to_string(TransactionType::L1Handler),
                         transaction_index_in_block: Some(transaction_index_in_block),
                         total_transactions_in_block: Some(total_transactions_in_block),
+                        l1_tx_hash: Some(transaction_hash.encode_hex()),
+                        l2_tx_hash: l2_tx_hash_hex,
                     });
                 }
             }

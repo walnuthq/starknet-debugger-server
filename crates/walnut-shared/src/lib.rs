@@ -425,14 +425,12 @@ async fn find_closest_block(
 ) -> anyhow::Result<u64> {
     let mut low = 30000;
     let mut high = rpc_client.block_number().await?;
-    let mut requests_count = 0;
 
     while low <= high {
         let mid = (low + high) / 2;
 
         if let Some(mid_timestamp) = get_block_timestamp(rpc_client, mid).await.ok() {
             if mid_timestamp >= target_timestamp && mid_timestamp <= target_timestamp + 60 {
-                dbg!(&requests_count);
                 return Ok(mid);
             } else if mid_timestamp < target_timestamp {
                 low = mid + 1;
@@ -443,7 +441,6 @@ async fn find_closest_block(
             // If block doesn't exist (out of range), adjust the bounds
             high = mid - 1;
         }
-        requests_count += 1;
     }
 
     Err(anyhow::anyhow!("No block found"))

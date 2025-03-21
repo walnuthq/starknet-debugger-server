@@ -129,6 +129,8 @@ pub struct TransactionSimulationResult {
     pub transaction_type: String,
     pub transaction_index_in_block: Option<usize>,
     pub total_transactions_in_block: Option<usize>,
+    pub l1_tx_hash: Option<String>,
+    pub l2_tx_hash: Option<String>,
 }
 
 #[derive(Error, Debug)]
