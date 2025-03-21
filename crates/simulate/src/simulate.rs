@@ -83,7 +83,9 @@ use walnut_shared::abi::{Enum, Event, Struct};
 use walnut_shared::abi_processor::AbiProcessor;
 use walnut_shared::felt_to_field_element;
 use walnut_shared::felts_to_string;
+use walnut_shared::fetch_tx_block_number_from_voyager;
 use walnut_shared::field_element_to_felt;
+use walnut_shared::get_voyager_api_url;
 use walnut_shared::{
     chain_id_to_readable_string, create_eth_provider_from_url, create_rpc_client_from_url,
     eth_rpc_url,
@@ -576,6 +578,17 @@ pub async fn simulate_ethereum_transaction_by_hash(
                         )
                         .ok();
                     // Pozovi funkciju simulacije sa dobijenim argumentima
+
+                    let block_number = match l2_tx_hash {
+                        Some(l2_tx_hash) => fetch_tx_block_number_from_voyager(
+                            &chain_id,
+                            &l2_tx_hash.to_hex_string(),
+                        )
+                        .await
+                        .ok(),
+                        None => None,
+                    };
+
                     let (
                         simulation_result,
                         block_timestamp,
@@ -587,7 +600,7 @@ pub async fn simulate_ethereum_transaction_by_hash(
                         SimulationArgs {
                             rpc_url: rpc_url.clone(),
                             chain_id: chain_id.clone(),
-                            block_number: None,
+                            block_number: block_number.map(|bn| BlockNumber(bn)),
                             nonce: Some(l1_handler_tx.nonce),
                             sender_address: l1_handler_tx.contract_address,
                             entry_point_selector: Some(l1_handler_tx.entry_point_selector),

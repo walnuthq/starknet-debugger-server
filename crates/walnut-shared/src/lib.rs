@@ -7,6 +7,7 @@ use anyhow::{anyhow, Context, Result};
 use cairo_vm::vm::trace::trace_entry::RelocatedTraceEntry;
 use ethers::providers::{Http, Middleware, Provider as EthProvider};
 use serde::Serialize;
+use serde_json::Value;
 use starknet::core::types::{
     BlockId, BlockTag, ContractStorageDiffItem, DeclaredClassItem, DeployedContractItem,
     ExecutionResult, Felt, StorageEntry,
@@ -369,4 +370,39 @@ pub fn extract_cairo_version_from_program(program: &[Felt]) -> Result<(u32, u32,
 pub fn felt_str_to_fixed(felt_str: &str) -> anyhow::Result<String> {
     let felt = Felt::from_hex(felt_str)?;
     Ok(felt.to_fixed_hex_string())
+}
+
+pub async fn fetch_tx_block_number_from_voyager(
+    chain_id: &ChainId,
+    tx_hash: &str,
+) -> anyhow::Result<u64> {
+    let voyager_api_url = get_voyager_api_url(&chain_id)
+        .map(|url| url.to_string())
+        .ok_or_else(|| anyhow::anyhow!("Invalid chain id"))?;
+    let client = reqwest::Client::new();
+    let url = format!("{}txns/{}", voyager_api_url, tx_hash);
+    let call_result = client
+        .get(&url)
+        .header("x-api-key", "Ji6ugSKp8L64EvevISdfb9CgY0sUBEhz6P4uPYOB")
+        .send()
+        .await;
+    match call_result {
+        Ok(response) => {
+            if response.status().is_success() {
+                let tx_details: Value = response.json().await.unwrap();
+                tx_details["blockNumber"]
+                    .as_u64()
+                    .ok_or_else(|| anyhow::anyhow!("Block number not found"))
+            } else {
+                Err(anyhow::anyhow!(
+                    "Failed to fetch tx details from voyager api: {}",
+                    response.status()
+                ))
+            }
+        }
+        Err(e) => Err(anyhow::anyhow!(
+            "Failed to fetch tx details from voyager api: {}",
+            e
+        )),
+    }
 }
