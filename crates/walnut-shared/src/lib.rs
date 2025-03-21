@@ -5,7 +5,10 @@ pub mod felt252_vec_compression;
 pub mod utils;
 use anyhow::{anyhow, Context, Result};
 use cairo_vm::vm::trace::trace_entry::RelocatedTraceEntry;
-use ethers::providers::{Http, Middleware, Provider as EthProvider};
+use ethers::providers::{Http, Provider as EthProvider};
+use ethers::types::H256;
+use num_bigint::BigInt;
+use num_traits::Num;
 use serde::Serialize;
 use serde_json::Value;
 use starknet::core::types::{
@@ -22,7 +25,9 @@ use starknet_providers::{
     Provider,
 };
 use starknet_selector_decoder::get_selector;
+use starknet_types_core::felt::CAIRO_PRIME_BIGINT;
 use std::collections::BTreeMap;
+use std::str::FromStr;
 use url::Url;
 
 #[derive(Serialize, Debug, Clone)]
@@ -68,13 +73,32 @@ pub fn create_eth_provider_from_url(rpc_url: String) -> EthProvider<Http> {
 pub fn eth_rpc_url(chain_id: &ChainId) -> String {
     match chain_id {
         ChainId::Mainnet => {
-            "https://eth-mainnet.g.alchemy.com/v2/n5H76ndOfsRUrEkP0vxTVAOSkZ8nA-Da".to_string()
+            "https://eth-mainnet.g.alchemy.com/v2/F2hlQcDXGdcnbgnGOSfAVSeBJ9iJsofp".to_string()
         }
         ChainId::Sepolia => {
-            "https://eth-sepolia.g.alchemy.com/v2/n5H76ndOfsRUrEkP0vxTVAOSkZ8nA-Da".to_string()
+            "https://eth-sepolia.g.alchemy.com/v2/F2hlQcDXGdcnbgnGOSfAVSeBJ9iJsofp".to_string()
         }
         _ => panic!("Invalid chain id"),
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ETransactionHashType {
+    Starknet(Felt),
+    Ethereum(H256),
+}
+
+pub fn parse_transaction_hash_per_network(tx_hash: &str) -> Option<ETransactionHashType> {
+    let trimmed = tx_hash.strip_prefix("0x")?;
+
+    let bigint_value = BigInt::from_str_radix(trimmed, 16).ok()?;
+
+    if bigint_value < *CAIRO_PRIME_BIGINT {
+        return Some(ETransactionHashType::Starknet(Felt::from(bigint_value)));
+    }
+
+    let eth_hash = H256::from_str(&format!("0x{}", trimmed)).ok()?;
+    Some(ETransactionHashType::Ethereum(eth_hash))
 }
 
 pub fn get_voyager_api_url(chain_id: &ChainId) -> Option<&str> {

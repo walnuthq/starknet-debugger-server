@@ -14,12 +14,9 @@ use crate::transaction_extraction::extract_starkgate_event_transaction_receipt;
 use crate::transaction_extraction::extract_submitted_tx;
 use crate::transaction_extraction::extract_transaction_contex;
 use crate::utils::calldata_to_hex;
-use crate::utils::parse_transaction_hash;
-use crate::utils::parse_transaction_hash_per_network;
 use crate::utils::transaction_type_to_string;
 use crate::ContractCall;
 use crate::EStarknetEvent;
-use crate::ETransactionHashType;
 use crate::FunctionCallsMap;
 use crate::SimulationArgs;
 use crate::SimulationInfo;
@@ -49,7 +46,7 @@ use cheatnet::runtime_extensions::call_to_blockifier_runtime_extension::rpc::Cal
 use cheatnet::state::CheatnetState;
 use ethers::abi::AbiDecode;
 use ethers::abi::AbiEncode;
-use ethers::providers::{Http, Middleware, Provider as EthProvider};
+use ethers::providers::Middleware;
 use ethers::types::Address;
 use ethers::types::Log;
 use ethers::types::H256;
@@ -86,10 +83,10 @@ use walnut_shared::felt_to_field_element;
 use walnut_shared::felts_to_string;
 use walnut_shared::fetch_tx_block_number_from_voyager;
 use walnut_shared::field_element_to_felt;
-use walnut_shared::get_voyager_api_url;
+use walnut_shared::parse_transaction_hash_per_network;
 use walnut_shared::{
     chain_id_to_readable_string, create_eth_provider_from_url, create_rpc_client_from_url,
-    eth_rpc_url,
+    eth_rpc_url, ETransactionHashType,
 };
 
 pub async fn simulate(
@@ -386,7 +383,7 @@ pub async fn simulate_transaction_by_hash(
     tx_hash: &str,
     chain_id: Option<ChainId>,
 ) -> Result<TransactionSimulationResult, TransactionSimulationError> {
-    if let Ok(transaction_hash) = parse_transaction_hash_per_network(tx_hash) {
+    if let Some(transaction_hash) = parse_transaction_hash_per_network(tx_hash) {
         let result = match transaction_hash {
             ETransactionHashType::Starknet(starknet_hash) => {
                 simulate_starknet_transaction_by_hash(
@@ -577,7 +574,6 @@ pub async fn simulate_ethereum_transaction_by_hash(
                     // Convert the event data to L1HandlerTransaction
                     let l1_handler_tx = L1HandlerTransaction::try_from(l1_event)
                         .expect("Can not convert L1 event to L1 Handler tx type");
-                    // Izračunaj transaction hash (kao Option<TransactionHash>)
                     let l2_tx_hash: Option<TransactionHash> = l1_handler_tx
                         .calculate_transaction_hash(
                             &chain_id,
@@ -660,7 +656,7 @@ fn decode_l1_event(log: &Log) -> Option<EStarknetEvent> {
     match event_signature {
         sig if sig == H256::from(keccak256("LogMessageToL1(uint256,address,uint256[])")) => {
             if topics.len() < 3 {
-                return None; // Osigurava da ima dovoljno podataka
+                return None;
             }
 
             let from_address = format!("{:?}", Address::from(topics[1]));

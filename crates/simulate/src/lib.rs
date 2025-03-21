@@ -15,7 +15,7 @@ use blockifier::transaction::errors::TransactionExecutionError;
 use blockifier::transaction::transaction_types::TransactionType;
 use contract_call::ContractCall;
 use contract_calls_map::ContractCallsMap;
-use ethers::types::{Address, H256, U256};
+use ethers::types::{Address, U256};
 use events::EmittedEvent;
 use internal_tracing::event_calls_map::EventCallsMap;
 use internal_tracing::function_calls_map::FunctionCallsMap;
@@ -48,12 +48,6 @@ use utils::{
     parse_chain_id_and_rpc_url, parse_contract_address, parse_nonce, parse_transaction_version,
 };
 use walnut_shared::Parameter;
-
-#[derive(Debug)]
-pub enum ETransactionHashType {
-    Starknet(Felt),
-    Ethereum(H256),
-}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SimulationRawArgs {

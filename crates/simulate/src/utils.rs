@@ -1,9 +1,8 @@
 use crate::transaction_extraction::extract_chain_id_from_felt;
-use crate::ETransactionHashType;
 use crate::SimulationRawArgs;
 use crate::TransactionSimulationError;
 use blockifier::transaction::transaction_types::TransactionType;
-use ethers::types::{Address, H256, U256};
+use ethers::types::{Address, U256};
 use num_bigint::{BigInt, BigUint};
 use num_traits::Num;
 use starknet_api::block::BlockNumber;
@@ -13,7 +12,6 @@ use starknet_api::transaction::TransactionVersion;
 use starknet_providers::Provider;
 use starknet_types_core::felt::Felt;
 use starknet_types_core::felt::CAIRO_PRIME_BIGINT;
-use std::str::FromStr;
 use std::sync::Arc;
 use url::Url;
 use walnut_shared::create_rpc_client_from_url;
@@ -94,37 +92,6 @@ pub fn parse_transaction_version(
         3 => Ok(TransactionVersion::THREE),
         _ => Err(TransactionSimulationError::InvalidTransactionVersion),
     }
-}
-
-pub fn parse_transaction_hash_per_network(
-    tx_hash: &str,
-) -> Result<ETransactionHashType, TransactionSimulationError> {
-    let trimmed = tx_hash
-        .strip_prefix("0x")
-        .ok_or(TransactionSimulationError::InvalidTransactionHash)?;
-
-    //Check if it is starknet tx hash
-    let bigint_value = BigInt::from_str_radix(trimmed, 16)
-        .map_err(|_| TransactionSimulationError::InvalidTransactionHash)?;
-    if bigint_value < *CAIRO_PRIME_BIGINT {
-        return Ok(ETransactionHashType::Starknet(Felt::from(bigint_value)));
-    }
-
-    // check Ethereum transaction hash
-    let eth_hash = H256::from_str(&format!("0x{}", trimmed))
-        .map_err(|_| TransactionSimulationError::InvalidTransactionHash)?;
-
-    Ok(ETransactionHashType::Ethereum(eth_hash))
-}
-
-pub fn parse_transaction_hash(tx_hash: &str) -> Result<Felt, TransactionSimulationError> {
-    let hex_str = tx_hash.trim_start_matches("0x");
-    let bigint_value = BigInt::from_str_radix(hex_str, 16)
-        .map_err(|_| TransactionSimulationError::InvalidTransactionHash)?;
-    if bigint_value >= *CAIRO_PRIME_BIGINT {
-        return Err(TransactionSimulationError::InvalidTransactionHash);
-    }
-    Ok(Felt::from(bigint_value))
 }
 
 pub fn convert_to_hex(num_str: &str) -> String {
