@@ -17,7 +17,10 @@ use starknet_api::{
     transaction::{Resource, ResourceBounds, ResourceBoundsMapping},
 };
 use starknet_old::core::types::{self as starknet_old_types};
-use starknet_providers::jsonrpc::{HttpTransport, JsonRpcClient};
+use starknet_providers::{
+    jsonrpc::{HttpTransport, JsonRpcClient},
+    Provider,
+};
 use starknet_selector_decoder::get_selector;
 use std::collections::BTreeMap;
 use url::Url;
@@ -390,9 +393,18 @@ pub async fn fetch_tx_block_number_from_voyager(
         Ok(response) => {
             if response.status().is_success() {
                 let tx_details: Value = response.json().await.unwrap();
-                tx_details["blockNumber"]
-                    .as_u64()
-                    .ok_or_else(|| anyhow::anyhow!("Block number not found"))
+
+                match tx_details["blockNumber"].as_u64() {
+                    Some(block_number) => Ok(block_number),
+                    None => {
+                        let timestamp = tx_details["timestamp"]
+                            .as_u64()
+                            .ok_or_else(|| anyhow::anyhow!("Block number not found"))?;
+                        let rpc_client = create_rpc_client(chain_id);
+                        let block_number = find_closest_block(&rpc_client, timestamp).await?;
+                        Ok(block_number)
+                    }
+                }
             } else {
                 Err(anyhow::anyhow!(
                     "Failed to fetch tx details from voyager api: {}",
@@ -404,5 +416,50 @@ pub async fn fetch_tx_block_number_from_voyager(
             "Failed to fetch tx details from voyager api: {}",
             e
         )),
+    }
+}
+
+async fn find_closest_block(
+    rpc_client: &JsonRpcClient<HttpTransport>,
+    target_timestamp: u64,
+) -> anyhow::Result<u64> {
+    let mut low = 30000;
+    let mut high = rpc_client.block_number().await?;
+    let mut requests_count = 0;
+
+    while low <= high {
+        let mid = (low + high) / 2;
+
+        if let Some(mid_timestamp) = get_block_timestamp(rpc_client, mid).await.ok() {
+            if mid_timestamp >= target_timestamp && mid_timestamp <= target_timestamp + 60 {
+                dbg!(&requests_count);
+                return Ok(mid);
+            } else if mid_timestamp < target_timestamp {
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        } else {
+            // If block doesn't exist (out of range), adjust the bounds
+            high = mid - 1;
+        }
+        requests_count += 1;
+    }
+
+    Err(anyhow::anyhow!("No block found"))
+}
+
+async fn get_block_timestamp(
+    rpc_client: &JsonRpcClient<HttpTransport>,
+    block_number: u64,
+) -> anyhow::Result<u64> {
+    let block = rpc_client
+        .get_block_with_tx_hashes(&starknet_old_types::BlockId::Number(block_number))
+        .await?;
+    match block {
+        starknet_old_types::MaybePendingBlockWithTxHashes::Block(block) => Ok(block.timestamp),
+        starknet_old_types::MaybePendingBlockWithTxHashes::PendingBlock(pending_block) => {
+            Ok(pending_block.timestamp)
+        }
     }
 }
