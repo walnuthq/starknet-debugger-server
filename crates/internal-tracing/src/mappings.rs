@@ -36,7 +36,7 @@ use walnut_shared::felts_to_string;
 use walnut_shared::utils::simplify_type_name;
 
 use crate::{
-    call_trace::{ContractCall, ESysCall, EventSysCall, InternalFnCallIO},
+    call_trace::{ContractCall, ESysCall, EventSysCall, InternalFnCallIO, StorageWrite},
     utils::{
         compile_sierra_contract_class, find_event_by_selector, get_pc_mappings,
         get_pc_sys_call_mappings, is_panic_result, make_casm_to_sierra_map,
@@ -492,6 +492,19 @@ impl Mappings {
                                     }
                                 }
                                 None
+                            }
+                            DeprecatedSyscallSelector::StorageWrite => {
+                                let _felt_value: Felt =
+                                    (*relocated_memory.get(ptr).unwrap()).unwrap();
+                                ptr += 1;
+                                let _felt_value: Felt =
+                                    (*relocated_memory.get(ptr).unwrap()).unwrap(); // Should be 0
+                                ptr += 1;
+                                let address = (*relocated_memory.get(ptr).unwrap()).unwrap();
+                                ptr += 1;
+                                let value = (*relocated_memory.get(ptr).unwrap()).unwrap();
+                                let storage_write = StorageWrite { address, value };
+                                Some(ESysCall::StorageWrite(storage_write))
                             }
                             _ => None,
                         }

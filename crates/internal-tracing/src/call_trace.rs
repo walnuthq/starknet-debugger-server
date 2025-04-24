@@ -30,9 +30,16 @@ pub struct EventSysCall {
 }
 
 #[derive(Debug, Serialize, Clone)]
+pub struct StorageWrite {
+    pub address: Felt,
+    pub value: Felt,
+}
+
+#[derive(Debug, Serialize, Clone)]
 pub enum ESysCall {
     ContractCall(ContractCall),
     EventCall(EventSysCall),
+    StorageWrite(StorageWrite),
 }
 
 #[derive(Debug, Serialize)]
@@ -390,6 +397,7 @@ pub fn get_internal_call_trace(
                         event_calls_map.0.insert(new_event_call_id, event_call);
                     }
                 }
+                _ => {}
             }
         }
 
