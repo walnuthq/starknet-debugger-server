@@ -352,7 +352,7 @@ pub fn get_internal_call_trace(
         }
 
         if let Some(system_call) =
-            mappings.get_system_call_at_trace_step(relocated_memory, trace_entry)
+            mappings.mappings_get_system_call_at_trace_step(relocated_memory, trace_entry)
         {
             match system_call {
                 ESysCall::ContractCall(_contract) => {
