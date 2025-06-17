@@ -250,7 +250,11 @@ fn normalize_with_sqrt(
         for child in &mut node.children {
             let sqrt_val = (child.raw_value as f64).sqrt();
             child.value = if sqrt_sum > 1e-8 {
-                parent_value * (sqrt_val / sqrt_sum)
+                if parent_value > 1e-8 {
+                    parent_value * (sqrt_val / sqrt_sum)
+                } else {
+                    sqrt_val / sqrt_sum
+                }
             } else {
                 0.0
             };
@@ -258,6 +262,21 @@ fn normalize_with_sqrt(
             normalize_with_sqrt(child, contract_calls_map, child.value);
         }
     }
+}
+
+fn find_and_extract_sierra_cost(root: &FlameChartNode) -> Option<FlameChartNode> {
+    for computation in &root.children {
+        if computation.name.as_deref() == Some("Computation resources") {
+            for child in &computation.children {
+                if child.name.as_deref() == Some("Sierra cost") && child.raw_value > 0 {
+                    let mut new_root = child.clone();
+                    new_root.value = 1.0;
+                    return Some(new_root);
+                }
+            }
+        }
+    }
+    None
 }
 
 pub fn build_flamegraph(
@@ -273,11 +292,13 @@ pub fn build_flamegraph(
         return None;
     }
 
+    let sierra_children_sum: u64 = contract_flamechart.iter().map(|c| c.raw_value).sum();
+
     let mut root = FlameChartNode {
         call_id: 0,
         raw_value: detailed_tx_receipt.gas.l2_gas.0,
         value: 1.0,
-        name: Some("Total resources".to_string()),
+        name: Some("L2 Gas".to_string()),
         children: vec![
             FlameChartNode {
                 call_id: 0,
@@ -339,10 +360,19 @@ pub fn build_flamegraph(
                     FlameChartNode {
                         call_id: 0,
                         name: Some("Sierra cost".to_string()),
-                        raw_value: detailed_tx_receipt
+                        raw_value: if detailed_tx_receipt
                             .computation_resources_sierra_gas_vector
                             .l2_gas
-                            .0,
+                            .0
+                            == 0
+                        {
+                            sierra_children_sum
+                        } else {
+                            detailed_tx_receipt
+                                .computation_resources_sierra_gas_vector
+                                .l2_gas
+                                .0
+                        },
                         value: 0.0,
                         children: contract_flamechart.to_vec(),
                     },
@@ -353,6 +383,11 @@ pub fn build_flamegraph(
 
     normalize_with_sqrt(&mut root, contract_calls_map, 1.0);
 
+    if root.raw_value == 0 {
+        if let Some(sierra_cost) = find_and_extract_sierra_cost(&root) {
+            return Some(sierra_cost);
+        }
+    }
     Some(root)
 }
 
