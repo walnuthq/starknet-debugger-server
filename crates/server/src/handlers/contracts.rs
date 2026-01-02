@@ -238,7 +238,7 @@ pub async fn get_contract_handler(
                         let core_chain_id = ChainId::from(*chain_id);
                         create_rpc_client(&core_chain_id)
                     }
-                    ESourceType::RpcUrl(url) => create_rpc_client_from_url(url.clone()),
+                    ESourceType::RpcUrl(_, url) => create_rpc_client_from_url(url.clone()),
                 };
 
                 if let Ok(class_from_blockchain) = provider
@@ -283,7 +283,7 @@ pub async fn get_contract_handler(
                         None
                     }
                 }
-                ESourceType::RpcUrl(_) => Some("custom RPC".to_string()),
+                ESourceType::RpcUrl(_, _) => Some("custom RPC".to_string()),
             })
             .collect();
 

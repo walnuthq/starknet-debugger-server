@@ -29,7 +29,8 @@ pub enum ESource {
 #[derive(Debug)]
 pub enum ESourceType {
     ChainId(EChainId),
-    RpcUrl(Url),
+    /// Stores (original_string, parsed_url) to preserve the exact URL format from frontend
+    RpcUrl(String, Url),
 }
 
 impl From<&ESourceType> for ESource {
@@ -39,7 +40,7 @@ impl From<&ESourceType> for ESource {
                 let core_chain_id = ChainId::from(*chain_id);
                 ESource::ChainId(chain_id_to_readable_string(&core_chain_id))
             }
-            ESourceType::RpcUrl(url) => ESource::RpcUrl(url.to_string()),
+            ESourceType::RpcUrl(original, _) => ESource::RpcUrl(original.clone()),
         }
     }
 }
@@ -64,7 +65,7 @@ pub fn sources_from_rpc_urls(urls: Option<&str>) -> Result<Vec<ESourceType>> {
                             trimmed_url
                         ));
                     }
-                    sources.push(ESourceType::RpcUrl(parsed_url));
+                    sources.push(ESourceType::RpcUrl(trimmed_url.to_string(), parsed_url));
                 }
                 Err(err) => {
                     return Err(anyhow!("Invalid URL '{}': {}", trimmed_url, err));
@@ -88,7 +89,7 @@ pub async fn check_transaction(hash: &str, sources: &[ESourceType]) -> Option<Ve
                     let (starknet_rpc, eth_rpc) = get_rpc_urls(e_chain_id);
                     (network, starknet_rpc, eth_rpc)
                 }
-                ESourceType::RpcUrl(url) => (ENetwork::Starknet, Some(url.clone()), None),
+                ESourceType::RpcUrl(_, url) => (ENetwork::Starknet, Some(url.clone()), None),
             };
             let transaction_hash = parse_transaction_hash_per_network(hash, &network)?;
             match transaction_hash {
@@ -109,7 +110,7 @@ pub async fn check_transaction(hash: &str, sources: &[ESourceType]) -> Option<Ve
                                 }
                             }
                         }
-                        ESourceType::RpcUrl(url) => create_rpc_client_from_url(url.clone()),
+                        ESourceType::RpcUrl(_, url) => create_rpc_client_from_url(url.clone()),
                     };
                     provider
                         .get_transaction_status(starknet_hash)
@@ -179,7 +180,7 @@ pub async fn check_contract(hash: &str, sources: &[ESourceType]) -> Option<Vec<D
                         let core_chain_id = ChainId::from(*e_chain_id);
                         create_rpc_client(&core_chain_id)
                     }
-                    ESourceType::RpcUrl(url) => create_rpc_client_from_url(url.clone()),
+                    ESourceType::RpcUrl(_, url) => create_rpc_client_from_url(url.clone()),
                 };
 
                 provider
@@ -197,7 +198,9 @@ pub async fn check_contract(hash: &str, sources: &[ESourceType]) -> Option<Vec<D
                                 let core_chain_id = ChainId::from(*chain_id);
                                 ESource::ChainId(chain_id_to_readable_string(&core_chain_id))
                             }
-                            ESourceType::RpcUrl(url) => ESource::RpcUrl(url.to_string()),
+                            ESourceType::RpcUrl(original, _) => {
+                                ESource::RpcUrl(original.clone())
+                            }
                         },
                         hash: hash.to_string(),
                     })
@@ -237,7 +240,7 @@ pub async fn check_class(hash: &str, sources: &[ESourceType]) -> Option<Vec<Data
                         let core_chain_id = ChainId::from(*chain_id);
                         create_rpc_client(&core_chain_id)
                     }
-                    ESourceType::RpcUrl(url) => create_rpc_client_from_url(url.clone()),
+                    ESourceType::RpcUrl(_, url) => create_rpc_client_from_url(url.clone()),
                 };
                 provider
                     .get_class(
@@ -253,7 +256,9 @@ pub async fn check_class(hash: &str, sources: &[ESourceType]) -> Option<Vec<Data
                                 let core_chain_id = ChainId::from(*chain_id);
                                 ESource::ChainId(chain_id_to_readable_string(&core_chain_id))
                             }
-                            ESourceType::RpcUrl(url) => ESource::RpcUrl(url.to_string()),
+                            ESourceType::RpcUrl(original, _) => {
+                                ESource::RpcUrl(original.clone())
+                            }
                         },
                         hash: hash.to_string(),
                     })
