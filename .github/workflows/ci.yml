@@ -1,11 +1,12 @@
 name: CI
 
-# Runs format, clippy, check, a secret scan and a dependency license audit on
-# every pull request and on merges to main.
+# Runs format, clippy, check, an end-to-end simulation test, a secret scan and a
+# dependency license audit on every pull request and on merges to main.
 on:
   pull_request:
+  merge_group:
   push:
-    branches: [main]
+    branches: [ main ]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -15,41 +16,69 @@ env:
   # The .sqlx directory holds prepared queries so sqlx::query! macros compile
   # without a live database.
   SQLX_OFFLINE: "true"
-  CARGO_TERM_COLOR: always
 
 jobs:
   check:
-    name: fmt + clippy + check
+    name: fmt + clippy + check + e2e
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-
-      # Same system packages the Dockerfile installs to build the workspace.
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libssl-dev pkg-config
-
-      # Channel comes from rust-toolchain.toml; this also caches the build.
-      - name: Install Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@master
         with:
-          components: rustfmt, clippy
+          toolchain: stable
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2.9.3
 
       - name: Format
         run: cargo fmt --all --check
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+        env:
+          # Make sure CI fails on all warnings, including Clippy and Cargo lints.
+          CARGO_BUILD_WARNINGS: "deny"
 
-      - name: Check
-        run: cargo check --workspace --all-targets
+      # The e2e test replays real mainnet transactions through the simulation
+      # pipeline. This is the only coverage of the full path - fork state over
+      # RPC, blockifier/cheatnet execution, trace collection and serialisation -
+      # so it guards the blast radius of a starknet-foundry or blockifier bump.
+      #
+      # It needs the STARKNET_MAINNET_RPC_URL secret to point at a provider that
+      # serves JSON-RPC spec 0.10; older specs omit the block header commitments
+      # starknet-rust needs.
+
+      # The e2e script does not install this itself - it only checks the binary
+      # is present, so the download stays a visible, cacheable CI step.
+      - name: Install Universal Sierra Compiler
+        run: sh scripts/install-usc.sh
+
+      # Built here rather than inside the e2e script, so a compile failure is
+      # reported as a compile failure and the run does not hold the Postgres and
+      # MinIO containers open for the length of a cold build.
+      - name: Build server
+        run: cargo build --bin server
+
+      - name: Start Postgres and MinIO
+        run: |
+          docker compose -f local/e2e-docker-compose.yaml up -d --wait postgres minio
+          docker compose -f local/e2e-docker-compose.yaml run --rm createbuckets
+
+      - name: Run e2e simulation test
+        env:
+          E2E_RPC_URL: ${{ secrets.STARKNET_MAINNET_RPC_URL }}
+          E2E_ETHEREUM_RPC_URL: ${{ secrets.ETHEREUM_MAINNET_RPC_URL }}
+        run: ./scripts/e2e_test.py
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: docker compose -f local/e2e-docker-compose.yaml logs --tail=100
 
   secrets:
     name: secret scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
 
       # Scans the checked-out tree, not the commit history. History is scanned
       # separately when we rotate keys; here we only need to stop a new secret
@@ -68,13 +97,13 @@ jobs:
     name: dependency licenses
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
 
       - name: Install Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.90.3
         with:
           tool: cargo-deny
 

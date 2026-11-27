@@ -18,7 +18,9 @@ pub mod storage_changes;
 pub mod transaction_extraction;
 pub mod transaction_info;
 pub mod utils;
-use blockifier::execution::errors::{EntryPointExecutionError, PreExecutionError};
+use blockifier::execution::errors::{
+    AnnotatedEntryPointExecutionError, EntryPointExecutionError, PreExecutionError,
+};
 use blockifier::fee::fee_checks::FeeCheckError;
 use blockifier::state::errors::StateError;
 use blockifier::transaction::errors::TransactionExecutionError;
@@ -275,8 +277,10 @@ pub enum TransactionSimulationError {
     StateError(#[from] StateError),
     #[error("{0}")]
     ProviderError(#[from] ProviderError),
-    #[error("{0}")]
-    PreConfirmedBlock(String),
+    #[error(
+        "Pre-confirmed block is not allowed at the configuration level. Make sure your rpc endpoint supports version >= 0.10.0"
+    )]
+    PreConfirmedBlock,
     #[error("{0}")]
     TransactionExecutionError(#[from] TransactionExecutionError),
     #[error("Invalid Felt string conversion: {0}")]
@@ -305,14 +309,16 @@ pub enum TransactionSimulationError {
     TransactionIndexNotFound,
     #[error("Invalid transaction version")]
     InvalidTransactionVersion,
-    #[error("Failed to fetch chain id")]
-    FailedToFetchChainId,
+    #[error("Failed to fetch chain id: {0}")]
+    FailedToFetchChainId(ProviderError),
+    #[error("Ethereum RPC error: {0}")]
+    EthProviderError(String),
     #[error("Failed to decode chain id")]
     FailedToDecodeChainId,
     #[error("Fee check error")]
     FeeCheckError(#[from] FeeCheckError),
-    #[error("Failed to convert to L1HandlerTransaction")]
-    ConversionError,
+    #[error("Failed to convert to L1HandlerTransaction: {0}")]
+    ConversionError(String),
     #[error("Trace Error occurred: {0}")]
     TraceError(String),
     #[error("Error occurred: {0}")]
@@ -330,6 +336,12 @@ impl From<anyhow::Error> for TransactionSimulationError {
 impl From<EntryPointExecutionError> for TransactionSimulationError {
     fn from(err: EntryPointExecutionError) -> Self {
         TransactionSimulationError::EntryPointExecutionError(err)
+    }
+}
+
+impl From<AnnotatedEntryPointExecutionError> for TransactionSimulationError {
+    fn from(err: AnnotatedEntryPointExecutionError) -> Self {
+        TransactionSimulationError::EntryPointExecutionError(err.into_unannotated())
     }
 }
 

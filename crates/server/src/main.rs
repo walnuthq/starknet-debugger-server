@@ -2,9 +2,9 @@ extern crate dotenv;
 mod abi_fetcher;
 mod app_state;
 mod appsmith_api;
-mod auth;
 mod binaries_manager_service;
 mod calldata_encoder;
+mod cloud_logging;
 mod handlers;
 mod notification_service;
 mod services;
@@ -12,14 +12,10 @@ mod services;
 use app_state::AppState;
 use aws_sdk_s3::config::Region;
 use aws_sdk_s3::Client;
-use axum::{routing::delete, routing::get, routing::post, Router};
+use axum::{routing::get, routing::post, Router};
 use axum_prometheus::PrometheusMetricLayer;
 use dotenv::dotenv;
 use handlers::{
-    admin::{
-        add_member, create_api_key, create_tenant, get_tenant, list_api_keys, remove_member,
-        revoke_api_key,
-    },
     calldata_decoder::decode_calldata_handler,
     classes::{get_class_handler, get_contracts_by_class_hash_handler},
     contracts::{get_contract_entrypoints_handler, get_contract_handler},
@@ -35,7 +31,6 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 use utoipa::OpenApi;
 
 use crate::appsmith_api::get_verification_data;
-use crate::auth::ApiKeyAuth;
 use crate::binaries_manager_service::{
     download_scarb_and_sozo_binaries_from_s3, start_github_dojo_binaries_downloader_scheduler,
     start_github_scarb_binaries_downloader_scheduler,
@@ -57,40 +52,41 @@ use tokio::time::{timeout, Duration};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
-    // Refuse to start without the admin token configured.
-    std::env::var("WALNUT_ADMIN_TOKEN").expect("WALNUT_ADMIN_TOKEN env var must be set");
     // Refuse to start without the RPC endpoints configured.
     walnut_shared::check_required_env();
-    // SENTRY CONFIGURATION
-    // _guard must be defined on top level so Sentry will catch errors
-    // Also Tokio must be initialized manually (not with attribute)
-    let mut _guard;
-    // Start Sentry only in RELEASE build, and only if a DSN is configured.
-    if !cfg!(debug_assertions) {
-        if let Ok(dsn) = std::env::var("SENTRY_DSN") {
-            _guard = sentry::init((
-                dsn,
-                sentry::ClientOptions {
-                    release: sentry::release_name!(),
-                    ..sentry::ClientOptions::default()
-                },
-            ));
-        }
+    // Errors and panics go to Cloud Error Reporting, which reads them out of
+    // Cloud Logging rather than over a client of its own - so there is nothing
+    // to initialise beyond the log format and no DSN to configure. See
+    // cloud_logging for what the entries have to look like.
+    //
+    // Two output shapes, picked by build profile. A release build is the one
+    // running on the VM under the COS logging agent, and gets the JSON the agent
+    // parses into `jsonPayload`; a debug build gets the human-readable format,
+    // because reading JSON off a terminal during development is miserable.
+    let registry = tracing_subscriber::registry().with(EnvFilter::new(
+        std::env::var("LOG_LEVEL").unwrap_or("INFO".to_string()),
+    )); // Set the maximum log level to INFO
+
+    if cfg!(debug_assertions) {
+        registry.with(fmt::layer()).init();
+    } else {
+        registry.with(cloud_logging::layer()).init();
     }
 
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(sentry_tracing::layer()) // Logging to stdout
-        .with(EnvFilter::new(
-            std::env::var("LOG_LEVEL").unwrap_or("INFO".to_string()),
-        )) // Set the maximum log level to INFO
-        .init();
+    // Before the runtime starts, so a panic anywhere after this point is
+    // reported. This is the position sentry::init used to occupy, for the same
+    // reason.
+    cloud_logging::init_panic_hook();
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .unwrap()
         .block_on(async {
+            // Needs the runtime (it asks the metadata server), so it cannot sit
+            // with the rest of the logging setup above.
+            cloud_logging::init_from_metadata().await;
+
             let db_addr = std::env::var("DATABASE_URL").unwrap_or("postgres://".to_string());
             let db_pool = PgPoolOptions::new()
                 .max_connections(30)
@@ -105,14 +101,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .load()
                 .await;
 
+            sqlx::migrate!().run(&db_pool).await?;
+
             // Create the S3 client
             let s3_client = Client::new(&shared_config);
-            sqlx::migrate!().run(&db_pool).await?;
 
             // Download scarb and sozo binaries
             download_scarb_and_sozo_binaries_from_s3(&s3_client).await?;
-            start_github_scarb_binaries_downloader_scheduler().await;
-            start_github_dojo_binaries_downloader_scheduler().await;
+            start_github_scarb_binaries_downloader_scheduler(s3_client.clone()).await;
+            start_github_dojo_binaries_downloader_scheduler(s3_client.clone()).await;
 
             // Initialize simulation cache with configurable settings from environment
             let cache_capacity = std::env::var("CACHE_CAPACITY")
@@ -132,9 +129,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Initialize Voyager client with API key
             let voyager_config = verification::voyager::VoyagerConfig::get_voyager_config();
+            let (voyager_mainnet_url, voyager_sepolia_url) = walnut_shared::voyager_api_urls();
+            tracing::info!(
+                enabled = voyager_config.enabled,
+                class_source_url = %voyager_config.base_url,
+                mainnet_url = %voyager_mainnet_url,
+                sepolia_url = %voyager_sepolia_url,
+                "Voyager configuration"
+            );
             let voyager_client = match verification::voyager::VoyagerClient::new(voyager_config) {
                 Ok(client) => {
-                    tracing::info!("Voyager client initialized and enabled");
+                    tracing::info!("Voyager client initialized");
                     Some(client)
                 }
                 Err(e) => {
@@ -150,11 +155,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 external_class_cache.clone(),
             );
 
-            let api_key_cache = moka::future::Cache::builder()
-                .max_capacity(10_000)
-                .time_to_live(Duration::from_secs(15 * 60))
-                .build();
-
             let shared_state = Arc::new(AppState {
                 db_pool,
                 s3_client,
@@ -162,7 +162,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 external_class_cache,
                 voyager_client,
                 background_retry,
-                api_key_cache,
             });
 
             let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
@@ -170,7 +169,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let app = Router::new()
                 .route("/dashboard/data", get(get_verification_data))
                 .route("/health", get(health_check))
-                .route("/health-check-api-key", get(health_check_api_key))
                 .route("/v1/simulate-transaction", post(simulate_transaction))
                 .route(
                     "/v1/:chain_id/simulate-transaction/:tx_hash",
@@ -200,15 +198,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .route("/v1/debug-transaction", post(debug_transaction))
                 .route("/v1/decode-calldata", post(decode_calldata_handler))
                 // .route("/v1/cache/stats", get(cache_stats_handler)) // Commented out for now
-                .route("/v1/admin/tenant", post(create_tenant))
-                .route("/v1/admin/tenant/:tenant_id", get(get_tenant))
-                .route("/v1/admin/tenant/:tenant_id/member", post(add_member))
-                .route(
-                    "/v1/admin/tenant/:tenant_id/member/:member_id/remove",
-                    post(remove_member),
-                )
-                .route("/v1/admin/api-key", post(create_api_key).get(list_api_keys))
-                .route("/v1/admin/api-key/:id", delete(revoke_api_key))
                 .with_state(shared_state)
                 .route("/metrics", get(|| async move { metric_handle.render() }))
                 .route_service(
@@ -220,7 +209,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     get(|| async { axum::response::Json(ApiDoc::openapi()) }),
                 )
                 .layer(tower_http::trace::TraceLayer::new_for_http())
-                .layer(sentry_tower::NewSentryLayer::<axum::http::Request<_>>::new_from_top())
+                .layer(axum::middleware::from_fn(cloud_logging::record_request))
                 .layer(prometheus_layer)
                 .route("/_ah/warmup", get(|| async { "OK" }))
                 .layer(CorsLayer::permissive());
@@ -233,10 +222,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             Ok(())
         })
-}
-
-async fn health_check_api_key(_auth: ApiKeyAuth) -> StatusCode {
-    StatusCode::OK
 }
 
 // If DB is down SQLX query is hanging, this is why 3 secs timeout

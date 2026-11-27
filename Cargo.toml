@@ -1,13 +1,12 @@
 [workspace]
 members = [
-  "crates/server",
-  "crates/db",
-  "crates/internal-tracing",
-  "crates/walnut-shared",
-  "crates/data-decoder",
-  "crates/scarb-dep-resolver",
-  "crates/simulate",
-  "crates/verification",
+    "crates/server",
+    "crates/internal-tracing",
+    "crates/walnut-shared",
+    "crates/data-decoder",
+    "crates/scarb-dep-resolver",
+    "crates/simulate",
+    "crates/verification",
 ]
 resolver = "2"
 
@@ -28,12 +27,12 @@ simulate = { path = "./crates/simulate" }
 scarb-dep-resolver = { path = "./crates/scarb-dep-resolver" }
 
 axum = { version = "0.6.20", features = ["macros"] }
-sqlx = { version = "0.7.2", features = [
-  "runtime-tokio",
-  "tls-native-tls",
-  "postgres",
-  "uuid",
-  "time",
+sqlx = { version = "0.8.6", features = [
+    "runtime-tokio",
+    "tls-native-tls",
+    "postgres",
+    "uuid",
+    "time",
 ] }
 tower = { version = "0.4.13", features = ["timeout"] }
 tower-http = { version = "0.4.4", features = ["cors", "trace"] }
@@ -42,27 +41,20 @@ serde = { version = "1.0.163", features = ["derive"] }
 serde_json = "1.0.104"
 url = "2.5.0"
 num-bigint = { version = "0.4.4", features = ["rand"] }
-camino = { version = "1.1.4", features = ["serde1"] }
-fs2 = "0.4.3"
 flate2 = "1.0.27"
 anyhow = "1.0.75"
 num-traits = "0.2.18"
-ctor = "0.2.4"
-indoc = "2"
-starknet-rust-crypto = "0.9.0"
 dotenv = "0.15.0"
 chrono = { version = "0.4.31", features = ["serde"] }
 reqwest = { version = "0.11.22", features = ["json", "stream"] }
 utoipa = "4.2.3"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.17", features = [
-  "std",
-  "registry",
-  "env-filter",
-  "json",
+    "std",
+    "registry",
+    "env-filter",
+    "json",
 ] }
-cookie = { version = "0.18", features = ["percent-encode"] }
-jsonwebtoken = "9.2.0"
 urlencoding = "2.1.3"
 uuid = { version = "1.6.1", features = ["v4", "fast-rng"] }
 time = { version = "0.3.36", features = ["serde", "serde-well-known", "formatting", "parsing"] }
@@ -80,54 +72,48 @@ thiserror = "1.0.60"
 num-integer = "0.1.46"
 lazy_static = "1.5.0"
 phf = { version = "0.11", features = ["macros"] }
-sentry = "0.34.0"
-sentry-tracing = "0.34.0"
-sentry-tower = { version = "0.34.0", features = [
-  "http",
-  "axum",
-  "axum-matched-path",
-] }
-fs_extra = "1.3.0"
-ethers = "2.0.14" 
+ethers = "2.0.14"
 tiny-keccak = "2.0.2"
 
-#starknet
+# starknet
 starknet-rust = "0.19.0"
-starknet_api = "0.18.0-rc.1" # depend on foundry
+starknet_api = "0.20.0-rc.1" # depend on foundry
 starknet-types-core = { version = "0.2.4", features = [
-  "hash",
-  "prime-bigint",
-  "serde",
+    "hash",
+    "prime-bigint",
+    "serde",
 ] }
 starknet-selector-decoder = { git = "https://github.com/amanusk/starknet-selector-decoder", branch = "main" }
 
-blockifier = { version = "0.18.0-rc.1", default-features = false, features = [
-  "testing",
-  "tracing",
+blockifier = { version = "0.20.0-rc.1", default-features = false, features = [
+    "testing",
+    "tracing",
+    "node_api",
 ] } # depend on foundry
-cairo-annotations = { version = "0.8.0", features = ["cairo-lang"] }
+cairo-annotations = { version = "0.10.0", features = ["cairo-lang"] }
 cairo-vm = "=3.2.0"
 
 # Cairo compiler
-cairo-lang-casm = "=2.17.0"
-cairo-lang-runner = "=2.17.0"
-cairo-lang-utils = "=2.17.0"
-cairo-lang-starknet = "=2.17.0"
-cairo-lang-sierra = "=2.17.0"
-cairo-lang-sierra-type-size = "=2.17.0"
-cairo-lang-starknet-classes = "=2.17.0"
-cairo-lang-sierra-to-casm = "=2.17.0"
+cairo-lang-casm = "=2.19.5"
+cairo-lang-utils = "=2.19.5"
+cairo-lang-sierra = "=2.19.5"
+cairo-lang-sierra-type-size = "=2.19.5"
+cairo-lang-starknet-classes = "=2.19.5"
+cairo-lang-sierra-to-casm = "=2.19.5"
 
 # Starknet Foundry
-cheatnet = { git = "https://github.com/walnuthq/starknet-foundry", rev = "9ca70d9deab5dbf9dc7fcadd8c9b8a1757575089" }
-runtime = { git = "https://github.com/walnuthq/starknet-foundry", rev = "9ca70d9deab5dbf9dc7fcadd8c9b8a1757575089" }
-scarb-api = { git = "https://github.com/walnuthq/starknet-foundry", rev = "9ca70d9deab5dbf9dc7fcadd8c9b8a1757575089" }
-conversions = { git = "https://github.com/walnuthq/starknet-foundry", rev = "9ca70d9deab5dbf9dc7fcadd8c9b8a1757575089" }
-universal-sierra-compiler-api = { git = "https://github.com/walnuthq/starknet-foundry", rev = "9ca70d9deab5dbf9dc7fcadd8c9b8a1757575089" }
+# The `starkloupe` feature carries the fork additions this server relies on:
+# VM memory and tracked-resource capture in the call trace, and serde
+# serialization of the trace result types.
+cheatnet = { git = "https://github.com/foundry-rs/starknet-foundry.git", rev = "ca47ea25a26f692f020d68c593c086ac717c76b2", features = [
+    "starkloupe",
+] }
+runtime = { git = "https://github.com/foundry-rs/starknet-foundry.git", rev = "ca47ea25a26f692f020d68c593c086ac717c76b2" }
+conversions = { git = "https://github.com/foundry-rs/starknet-foundry.git", rev = "ca47ea25a26f692f020d68c593c086ac717c76b2" }
+universal-sierra-compiler-api = { git = "https://github.com/foundry-rs/starknet-foundry.git", rev = "ca47ea25a26f692f020d68c593c086ac717c76b2" }
 
 # For Scarb binary download scheduler
 tokio-util = { version = "0.7.11", features = ["compat"] }
-regex = "1.11.1"
 async-tar = "0.5.0"
 semver = "1.0"
 async-compression = { version = "0.4.1", features = ["gzip", "tokio"] }

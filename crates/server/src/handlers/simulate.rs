@@ -1,3 +1,7 @@
+// `TransactionSimulationError` is large by nature; the `simulate` crate makes the
+// same allowance at its crate root.
+#![allow(clippy::result_large_err)]
+
 use crate::app_state::AppState;
 use crate::calldata_encoder;
 use crate::handlers::common::{
@@ -149,7 +153,7 @@ async fn run_simulation_with_cache(
     // Notification
     if !skip_tracking {
         if let Err(err) = send_notification_calldata(&simulation_args).await {
-            error!("Failed to send Telegram notification. Error: {:?}", err);
+            error!("Failed to send Slack notification. Error: {:?}", err);
         }
     }
 
@@ -220,21 +224,25 @@ async fn handle_decoded_calldata_simulation(
 ) -> Result<Arc<simulate::TransactionSimulationResult>, Response> {
     let decoded_args_for_error = args.clone();
 
-    let chain_id = args.chain_id.as_deref().ok_or_else(|| {
+    if args.chain_id.is_none() && args.rpc_url.is_none() {
+        return Err(sim_error_response(
+            "Missing required field: chain_id or rpc_url".to_string(),
+            SimulationPayload::WithDecodedCalldata(decoded_args_for_error),
+        ));
+    }
+
+    let raw_calldata = calldata_encoder::encode_decoded_calldata(
+        &args.decoded_calldata,
+        args.chain_id.as_deref(),
+        args.rpc_url.as_deref(),
+    )
+    .await
+    .map_err(|e| {
         sim_error_response(
-            "Missing required field: chain_id".to_string(),
-            SimulationPayload::WithDecodedCalldata(decoded_args_for_error.clone()),
+            format!("Failed to encode decoded calldata: {}", e),
+            SimulationPayload::WithDecodedCalldata(decoded_args_for_error),
         )
     })?;
-
-    let raw_calldata = calldata_encoder::encode_decoded_calldata(&args.decoded_calldata, chain_id)
-        .await
-        .map_err(|e| {
-            sim_error_response(
-                format!("Failed to encode decoded calldata: {}", e),
-                SimulationPayload::WithDecodedCalldata(decoded_args_for_error),
-            )
-        })?;
 
     let raw_args = SimulationRawArgs {
         chain_id: args.chain_id,
@@ -274,7 +282,7 @@ async fn handle_tx_hash_simulation(
         if let Err(err) =
             send_notification_custom_rpc(args.tx_hash.as_str(), args.rpc_url.as_str()).await
         {
-            error!("Failed to send Telegram notification. Error: {:?}", err);
+            error!("Failed to send Slack notification. Error: {:?}", err);
         }
     }
 
@@ -394,7 +402,7 @@ pub async fn simulate_transaction_by_hash_handler(
     // Notification is sent before the blocking task (matches original behavior)
     if !should_skip_tracking(&query_params.skip_tracking) {
         if let Err(err) = send_notification_tx_id(tx_hash.as_str(), chain_id.as_str()).await {
-            error!("Failed to send Telegram notification. Error: {:?}", err);
+            error!("Failed to send Slack notification. Error: {:?}", err);
         }
     }
 

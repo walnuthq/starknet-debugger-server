@@ -53,6 +53,12 @@ pub static ETHEREUM_MAINNET_RPC_URL: LazyLock<String> =
     LazyLock::new(|| required_env("ETHEREUM_MAINNET_RPC_URL"));
 pub static ETHEREUM_SEPOLIA_RPC_URL: LazyLock<String> =
     LazyLock::new(|| required_env("ETHEREUM_SEPOLIA_RPC_URL"));
+// Bucket holding the verified class payloads (`class-<class_hash>.json`).
+// Required rather than defaulted on purpose: pointing at the wrong bucket does
+// not fail, it silently degrades every class to unverified, which costs far
+// more to diagnose than a missing variable at startup.
+pub static CLASSES_S3_BUCKET_NAME: LazyLock<String> =
+    LazyLock::new(|| required_env("CLASSES_S3_BUCKET_NAME"));
 
 fn required_env(name: &str) -> String {
     let value = std::env::var(name)
@@ -70,6 +76,7 @@ pub fn check_required_env() {
     LazyLock::force(&STARKNET_SEPOLIA_RPC_URL);
     LazyLock::force(&ETHEREUM_MAINNET_RPC_URL);
     LazyLock::force(&ETHEREUM_SEPOLIA_RPC_URL);
+    LazyLock::force(&CLASSES_S3_BUCKET_NAME);
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -245,12 +252,36 @@ pub fn is_valid_transaction_hash_for_network(tx_hash: &str, network: &ENetwork) 
     }
 }
 
-pub fn get_voyager_api_url(chain_id: &ChainId) -> Option<&str> {
-    match chain_id {
-        ChainId::Mainnet => Some("https://api.voyager.online/beta/"),
-        ChainId::Sepolia => Some("https://sepolia-api.voyager.online/beta/"),
-        _ => None,
-    }
+pub const VOYAGER_MAINNET_API_URL: &str = "https://api.voyager.online/beta/";
+pub const VOYAGER_SEPOLIA_API_URL: &str = "https://sepolia-api.voyager.online/beta/";
+
+/// The value of the env var, or `default` when it is unset or empty.
+pub fn env_or_default(name: &str, default: &str) -> String {
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| default.to_string())
+}
+
+/// Voyager base URL for the chain. `VOYAGER_API_URL_MAINNET` /
+/// `VOYAGER_API_URL_SEPOLIA` override the defaults (e.g. to use a dev endpoint).
+/// The URL always ends with a trailing slash.
+pub fn get_voyager_api_url(chain_id: &ChainId) -> Option<String> {
+    let (env_var, default) = match chain_id {
+        ChainId::Mainnet => ("VOYAGER_API_URL_MAINNET", VOYAGER_MAINNET_API_URL),
+        ChainId::Sepolia => ("VOYAGER_API_URL_SEPOLIA", VOYAGER_SEPOLIA_API_URL),
+        _ => return None,
+    };
+    let url = env_or_default(env_var, default);
+    Some(format!("{}/", url.trim_end_matches('/')))
+}
+
+/// The effective (mainnet, sepolia) Voyager base URLs, for startup logging.
+pub fn voyager_api_urls() -> (String, String) {
+    (
+        get_voyager_api_url(&ChainId::Mainnet).unwrap_or_default(),
+        get_voyager_api_url(&ChainId::Sepolia).unwrap_or_default(),
+    )
 }
 
 /// The Voyager API key, if one is configured. Voyager lookups are optional —
@@ -332,10 +363,7 @@ pub fn chain_id_to_url_format(chain_id: &ChainId) -> String {
 /// hosted Walnut app. A trailing slash is dropped so the links don't end up
 /// with a double one.
 static WALNUT_APP_URL: LazyLock<String> = LazyLock::new(|| {
-    let url = std::env::var("WALNUT_APP_BASE_URL")
-        .ok()
-        .filter(|url| !url.is_empty())
-        .unwrap_or_else(|| DEFAULT_WALNUT_APP_URL.to_string());
+    let url = env_or_default("WALNUT_APP_BASE_URL", DEFAULT_WALNUT_APP_URL);
     url.trim_end_matches('/').to_string()
 });
 
